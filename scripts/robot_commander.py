@@ -110,7 +110,6 @@ class RobotCommander(Node):
         self.ring_parking_dist = 0.3
         self.navigation_list = []
 
-        self.faces_greeted = 0
 
 
         self.map_np = None
@@ -184,6 +183,42 @@ class RobotCommander(Node):
         super().destroy_node()     
 
 
+
+
+
+    def info(self, msg):
+        self.get_logger().info(msg)
+        return
+
+    def warn(self, msg):
+        self.get_logger().warn(msg)
+        return
+
+    def error(self, msg):
+        self.get_logger().error(msg)
+        return
+
+    def debug(self, msg):
+        self.get_logger().debug(msg)
+        return
+
+
+    def get_pose_obj(self, x, y, fi):
+
+        goal_pose = PoseStamped()
+        goal_pose.header.frame_id = 'map'
+        goal_pose.header.stamp = self.get_clock().now().to_msg()
+
+        goal_pose.pose.position.x = x
+        goal_pose.pose.position.y = y
+        goal_pose.pose.orientation = self.YawToQuaternion(fi)
+
+        return goal_pose
+    
+
+
+    # Transformation functions:
+
     def map_pixel_to_world(self, x, y, theta=0):
         ### Convert a pixel in an numpy image, to a real world location
         ### Works only for theta=0
@@ -210,384 +245,8 @@ class RobotCommander(Node):
         # Apply rotation
         return x, y
     
-    def parking_camera(self):
-        msg = String()
-        msg.data = "look_for_parking"
-        self.arm_pub.publish(msg)
-    
-    def normal_camera(self):
-        msg = String()
-        msg.data = "garage"
-        self.arm_pub.publish(msg)
 
-
-    def face_detected_callback(self, msg):
-        
-        self.info("Face detected!")
-
-        face_location = np.array([msg.pose.position.x, msg.pose.position.y])
-
-        curr_pos = self.get_curr_pos()  
-        curr_pos_location = np.array([curr_pos.point.x, curr_pos.point.y])
-
-        vec_to_face_normed = face_location - curr_pos_location
-        vec_to_face_normed /= np.linalg.norm(vec_to_face_normed)
-
-        face_goal_location = face_location - self.hello_dist * vec_to_face_normed
-
-        fi = np.arctan2(vec_to_face_normed[1], vec_to_face_normed[0])
-
-        add_to_navigation = [
-            ("go", (face_goal_location[0], face_goal_location[1], fi)),
-            # ("say_hi", 0),
-            ("spin", 3.14),
-            self.last_destination_goal
-        ]
-
-        self.prepend_to_nav_list(add_to_navigation, spin_full_after_go=False)
-
-        self.cancel_goal = True
-        # self.cancelTask()
-
-    def ring_detected_callback(self, msg):
-        self.info("Ring detected!")
-
-        r = int(msg.color.r * 255)
-        g = int(msg.color.g * 255)
-        b = int(msg.color.b * 255)
-
-        h, s, v = self.rgb2hsv(r, g, b)
-
-        color = ""
-        if(v < 0.1):
-            color = "black"
-        elif h < 15 or h > 350:
-            color = "red"
-        elif h > 20 and h < 65:
-            color = "yellow"
-        elif h > 65 and h < 150:
-            color = "green"
-        elif h > 180 and h < 265:
-            color = "blue"
-
-        string_to_say = color + " ring."
-
-        add_to_navigation = [
-            ("say_color", string_to_say),
-        ]
-
-
-        # if color == "green":
-        if True:
-
-            ring_location = np.array([msg.pose.position.x, msg.pose.position.y])
-
-            curr_pos = self.get_curr_pos()
-            while curr_pos is None:
-                print("Waiting for point...")
-                time.sleep(0)
-                curr_pos = self.get_curr_pos()
-
-            curr_pos_location = np.array([curr_pos.point.x, curr_pos.point.y])
-
-            vec_to_face_normed = ring_location - curr_pos_location
-            vec_to_face_normed /= np.linalg.norm(vec_to_face_normed)
-
-            ring_location = ring_location - self.ring_parking_dist * vec_to_face_normed
-
-            fi = np.arctan2(vec_to_face_normed[1], vec_to_face_normed[0])
-
-            add_to_navigation.append(("go", (ring_location[0], ring_location[1], fi)))
-            add_to_navigation.append(("park", None))
-
-            self.parking_camera()
-            
-        add_to_navigation.append(self.last_destination_goal)
-
-
-        self.prepend_to_nav_list(add_to_navigation, spin_full_after_go=False)
-
-        self.cancel_goal = True
-        # self.cancelTask()
-
-
-    def cylinder_detected_callback(self, msg):
-        
-        self.info("Cylinder detected!")
-
-        r = int(msg.color.r * 255)
-        g = int(msg.color.g * 255)
-        b = int(msg.color.b * 255)
-
-        h, s, v = self.rgb2hsv(r, g, b)
-
-        color = ""
-        if(v < 0.1):
-            color = "black"
-        elif h < 15 or h > 350:
-            color = "red"
-        elif h > 20 and h < 65:
-            color = "yellow"
-        elif h > 65 and h < 150:
-            color = "green"
-        elif h > 180 and h < 265:
-            color = "blue"
-
-        string_to_say = color + " cylinder"
-
-        add_to_navigation = [
-            ("say_color", string_to_say),
-            self.last_destination_goal
-        ]
-
-        self.prepend_to_nav_list(add_to_navigation, spin_full_after_go=False)
-
-        self.cancel_goal = True
-        # self.cancelTask()
-
-
-    def top_img_stats_callback(self, msg):
-
-        # We decided to abuse the twist message so we don't have to make our own one.
-
-        # The ordering is the same that we get from get_area_and_centroid() and img.shape in image_gatherer.py
-        # Names msg.linear.x don't necessarily mean the x coodrinate. It is simply the first of the two components.
-
-        centroid = (msg.linear.x, msg.linear.y)
-        area = msg.linear.z
-        shape = (int(msg.angular.x), int(msg.angular.y))
-
-        self.latest_top_img_stats = (centroid, area, shape)
-        self.top_img_changed = True
-    
-    
-    def get_latest_top_img_stats(self):
-        top_img_has_changed = self.top_img_changed
-        self.top_img_changed = False
-        return self.latest_top_img_stats[0], self.latest_top_img_stats[1], self.latest_top_img_stats[2], top_img_has_changed
-    
-
-    def get_top_img_stats_with_waiting_for_change(self):
-
-        centroid, area, shape, top_img_has_changed = self.get_latest_top_img_stats()
-
-        is_none_present = area is None or centroid is None or shape is None
-
-        cycle_duration = 1000    # miliseconds
-        cycle_start_time = time.time()
-        while is_none_present or not top_img_has_changed:
-            
-            if (time.time() - cycle_start_time) >= cycle_duration:
-                cycle_start_time = time.time()
-                print("Waiting for new image stats...")
-            
-            self.wait_by_spinning()
-            centroid, area, shape, top_img_has_changed = self.get_latest_top_img_stats()
-        
-        
-        
-        return centroid, area, shape
-    
-
-    def rgb2hsv(self, r, g, b):
-
-        c_high = max(r, max(g, b))
-        c_low = min(r, min(g, b))
-        c_rng = c_high - c_low
-
-        s = 0
-        if c_high > 0:
-            s = c_rng / c_high
-
-        v = c_high / 255
-
-        r1 = (c_high - r) / c_rng
-        g1 = (c_high - g) / c_rng
-        b1 = (c_high - b) / c_rng
-
-        h1 = 0
-        if r == c_high:
-            h1 = b1 - g1
-        elif g == c_high:
-            h1 = r1 - b1 + 2
-        elif b == c_high:
-            h1 = g1 - r1 + 4
-
-        h = 0
-        if c_rng == 0:
-            h = 0
-        elif h1 < 0:
-            h = (h1 + 6) / 6
-        else:
-            h = h1 / 6
-
-        h = h * 360
-
-        return h, s, v
-
-    def map_callback(self, msg):
-            self.get_logger().info(f"Read a new Map (Occupancy grid) from the topic.")
-            # reshape the message vector back into a map
-            self.map_np = np.asarray(msg.data, dtype=np.int8).reshape(msg.info.height, msg.info.width)
-            # fix the direction of Y (origin at top for OpenCV, origin at bottom for ROS2)
-            self.map_np = np.flipud(self.map_np)
-            # change the colors so they match with the .pgm image
-            self.map_np[self.map_np==0] = 127
-            self.map_np[self.map_np==100] = 0
-            # load the map parameters
-            self.map_data["map_load_time"]=msg.info.map_load_time
-            self.map_data["resolution"]=msg.info.resolution
-            self.map_data["width"]=msg.info.width
-            self.map_data["height"]=msg.info.height
-            quat_list = [msg.info.origin.orientation.x,
-                        msg.info.origin.orientation.y,
-                        msg.info.origin.orientation.z,
-                        msg.info.origin.orientation.w]
-            self.map_data["origin"]=[msg.info.origin.position.x,
-                                    msg.info.origin.position.y,
-                                    tf_transformations.euler_from_quaternion(quat_list)[-1]]
-            #self.get_logger().info(f"Read a new Map (Occupancy grid) from the topic.")
-
-
-    def get_curr_pos(self):
-            # Create a PointStamped in the /base_link frame of the robot
-            # The point is located 0.5m in from of the robot
-            # "Stamped" means that the message type contains a Header
-            point_in_robot_frame = PointStamped()
-            point_in_robot_frame.header.frame_id = "/base_link"
-            point_in_robot_frame.header.stamp = self.get_clock().now().to_msg()
-
-            point_in_robot_frame.point.x = 0.
-            point_in_robot_frame.point.y = 0.
-            point_in_robot_frame.point.z = 0.
-
-            # Now we look up the transform between the base_link and the map frames
-            # and then we apply it to our PointStamped
-
-
-            time_now = rclpy.time.Time()
-            timeout =rclpyDuration(seconds=0.1)
-            try:
-                # An example of how you can get a transform from /base_link frame to the /map frame
-                # as it is at time_now, wait for timeout for it to become available
-                trans = self.tf_buffer.lookup_transform("map", "base_link", time_now, timeout)
-                self.get_logger().info(f"Looks like the transform is available.")
-
-                # Now we apply the transform to transform the point_in_robot_frame to the map frame
-                # The header in the result will be copied from the Header of the transform
-                point_in_map_frame = tfg.do_transform_point(point_in_robot_frame, trans)
-                self.get_logger().info(f"We transformed a PointStamped!")
-
-                return point_in_map_frame
-
-
-            except TransformException as te:
-                self.get_logger().info(f"Cound not get the transform: {te}")
-    
-
-    def create_marker(self, point_stamped, marker_id):
-        """You can see the description of the Marker message here: https://docs.ros2.org/galactic/api/visualization_msgs/msg/Marker.html"""
-        marker = Marker()
-
-        marker.header = point_stamped.header
-
-        marker.type = marker.CUBE
-        marker.action = marker.ADD
-        marker.id = marker_id
-
-        # Set the scale of the marker
-        scale = 0.15
-        marker.scale.x = scale
-        marker.scale.y = scale
-        marker.scale.z = scale
-
-        # Set the color
-        marker.color.r = 1.0
-        marker.color.g = 0.0
-        marker.color.b = 0.0
-        marker.color.a = 1.0
-
-        # Set the pose of the marker
-        marker.pose.position.x = point_stamped.point.x
-        marker.pose.position.y = point_stamped.point.y
-        marker.pose.position.z = point_stamped.point.z
-
-        return marker
-
-    def make_cv2_window(self):
-        cv2.namedWindow("Just for showing what is in rc.map_np", cv2.WINDOW_NORMAL)
-
-    def show_map(self):
-        cv2.imshow("Just for showing what is in rc.map_np", self.map_np)
-        cv2.waitKey(1000)
-
-    def goToPose(self, pose, behavior_tree=''):
-        """Send a `NavToPose` action request."""
-        self.debug("Waiting for 'NavigateToPose' action server")
-        while not self.nav_to_pose_client.wait_for_server(timeout_sec=1.0):
-            self.info("'NavigateToPose' action server not available, waiting...")
-
-        goal_msg = NavigateToPose.Goal()
-        goal_msg.pose = pose
-        goal_msg.behavior_tree = behavior_tree
-
-        self.info('Navigating to goal: ' + str(pose.pose.position.x) + ' ' +
-                  str(pose.pose.position.y) + '...')
-        send_goal_future = self.nav_to_pose_client.send_goal_async(goal_msg,
-                                                                   self._feedbackCallback)
-        
-        rclpy.spin_until_future_complete(self, send_goal_future)
-        self.goal_handle = send_goal_future.result()
-
-        if not self.goal_handle.accepted:
-            self.error('Goal to ' + str(pose.pose.position.x) + ' ' +
-                       str(pose.pose.position.y) + ' was rejected!')
-            return False
-
-        self.result_future = self.goal_handle.get_result_async()
-        return True
-
-
-    def cancelTask(self):
-        """Cancel pending task request of any type."""
-        self.info('Canceling current task.')
-        if self.result_future:
-            future = self.goal_handle.cancel_goal_async()
-            rclpy.spin_until_future_complete(self, future)
-        return
-
-
-    def spin(self, spin_dist=1.57, time_allowance=10, print_info=True):
-        self.debug("Waiting for 'Spin' action server")
-        while not self.spin_client.wait_for_server(timeout_sec=1.0):
-            self.info("'Spin' action server not available, waiting...")
-        goal_msg = Spin.Goal()
-        goal_msg.target_yaw = spin_dist
-        goal_msg.time_allowance = Duration(sec=time_allowance)
-
-        if print_info:
-            self.info(f'Spinning to angle {goal_msg.target_yaw}....')
-        send_goal_future = self.spin_client.send_goal_async(goal_msg, self._feedbackCallback)
-        rclpy.spin_until_future_complete(self, send_goal_future)
-        self.goal_handle = send_goal_future.result()
-
-        if not self.goal_handle.accepted:
-            self.error('Spin request was rejected!')
-            return False
-
-        self.result_future = self.goal_handle.get_result_async()
-        return True
-
-
-    def wait_by_spinning(self, spin_dist=2*3.14 * 1e-7, spin_seconds=1):
-        # Keep spin seconds low so that we remain in almost the same place.
-        # Spin seconds has to be int.
-        spin_dir = self.waiting_spin_dir
-        self.waiting_spin_dir = -self.waiting_spin_dir
-
-        self.spin(spin_dir * spin_dist, spin_seconds, print_info=False)
-        
-
+    # General RC stuff:
 
 
     def undock(self):
@@ -732,6 +391,468 @@ class RobotCommander(Node):
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    # Our code:
+
+
+    # Somewhat general functions:
+
+    def rgb2hsv(self, r, g, b):
+
+        c_high = max(r, max(g, b))
+        c_low = min(r, min(g, b))
+        c_rng = c_high - c_low
+
+        s = 0
+        if c_high > 0:
+            s = c_rng / c_high
+
+        v = c_high / 255
+
+        r1 = (c_high - r) / c_rng
+        g1 = (c_high - g) / c_rng
+        b1 = (c_high - b) / c_rng
+
+        h1 = 0
+        if r == c_high:
+            h1 = b1 - g1
+        elif g == c_high:
+            h1 = r1 - b1 + 2
+        elif b == c_high:
+            h1 = g1 - r1 + 4
+
+        h = 0
+        if c_rng == 0:
+            h = 0
+        elif h1 < 0:
+            h = (h1 + 6) / 6
+        else:
+            h = h1 / 6
+
+        h = h * 360
+
+        return h, s, v
+
+
+    def create_marker(self, point_stamped, marker_id):
+        """You can see the description of the Marker message here: https://docs.ros2.org/galactic/api/visualization_msgs/msg/Marker.html"""
+        marker = Marker()
+
+        marker.header = point_stamped.header
+
+        marker.type = marker.CUBE
+        marker.action = marker.ADD
+        marker.id = marker_id
+
+        # Set the scale of the marker
+        scale = 0.15
+        marker.scale.x = scale
+        marker.scale.y = scale
+        marker.scale.z = scale
+
+        # Set the color
+        marker.color.r = 1.0
+        marker.color.g = 0.0
+        marker.color.b = 0.0
+        marker.color.a = 1.0
+
+        # Set the pose of the marker
+        marker.pose.position.x = point_stamped.point.x
+        marker.pose.position.y = point_stamped.point.y
+        marker.pose.position.z = point_stamped.point.z
+
+        return marker
+
+    def make_cv2_window(self):
+        cv2.namedWindow("Just for showing what is in rc.map_np", cv2.WINDOW_NORMAL)
+
+    def show_map(self):
+        cv2.imshow("Just for showing what is in rc.map_np", self.map_np)
+        cv2.waitKey(1000)
+
+
+
+    # Various permanent setters:
+
+
+    
+    def set_top_camera(self, pos_str="normal"):
+
+        sending_str = ""
+        if pos_str == "normal":
+            sending_str = "garage"
+        elif pos_str == "park":
+            sending_str = "look_for_parking"
+        elif pos_str == "qr":
+            sending_str = "look_for_qr"
+
+        msg = String()
+        msg.data = sending_str
+        self.arm_pub.publish(msg)
+
+
+
+    # Callbacks and their supporting functions:
+
+
+    def map_callback(self, msg):
+            self.get_logger().info(f"Read a new Map (Occupancy grid) from the topic.")
+            # reshape the message vector back into a map
+            self.map_np = np.asarray(msg.data, dtype=np.int8).reshape(msg.info.height, msg.info.width)
+            # fix the direction of Y (origin at top for OpenCV, origin at bottom for ROS2)
+            self.map_np = np.flipud(self.map_np)
+            # change the colors so they match with the .pgm image
+            self.map_np[self.map_np==0] = 127
+            self.map_np[self.map_np==100] = 0
+            # load the map parameters
+            self.map_data["map_load_time"]=msg.info.map_load_time
+            self.map_data["resolution"]=msg.info.resolution
+            self.map_data["width"]=msg.info.width
+            self.map_data["height"]=msg.info.height
+            quat_list = [msg.info.origin.orientation.x,
+                        msg.info.origin.orientation.y,
+                        msg.info.origin.orientation.z,
+                        msg.info.origin.orientation.w]
+            self.map_data["origin"]=[msg.info.origin.position.x,
+                                    msg.info.origin.position.y,
+                                    tf_transformations.euler_from_quaternion(quat_list)[-1]]
+            #self.get_logger().info(f"Read a new Map (Occupancy grid) from the topic.")
+
+
+
+    def face_detected_callback(self, msg):
+        
+        self.info("Face detected!")
+
+        face_location = np.array([msg.pose.position.x, msg.pose.position.y])
+
+        curr_pos = self.get_curr_pos()  
+        curr_pos_location = np.array([curr_pos.point.x, curr_pos.point.y])
+
+        vec_to_face_normed = face_location - curr_pos_location
+        vec_to_face_normed /= np.linalg.norm(vec_to_face_normed)
+
+        face_goal_location = face_location - self.hello_dist * vec_to_face_normed
+
+        fi = np.arctan2(vec_to_face_normed[1], vec_to_face_normed[0])
+
+        add_to_navigation = [
+            ("go", (face_goal_location[0], face_goal_location[1], fi)),
+            ("face_or_painting", 0),
+            ("spin", 3.14),
+            self.last_destination_goal
+        ]
+
+        self.prepend_to_nav_list(add_to_navigation, spin_full_after_go=False)
+
+        self.cancel_goal = True
+        # self.cancelTask()
+
+    def ring_detected_callback(self, msg):
+        self.info("Ring detected!")
+
+        r = int(msg.color.r * 255)
+        g = int(msg.color.g * 255)
+        b = int(msg.color.b * 255)
+
+        h, s, v = self.rgb2hsv(r, g, b)
+
+        color = ""
+        if(v < 0.1):
+            color = "black"
+        elif h < 15 or h > 350:
+            color = "red"
+        elif h > 20 and h < 65:
+            color = "yellow"
+        elif h > 65 and h < 150:
+            color = "green"
+        elif h > 180 and h < 265:
+            color = "blue"
+
+        string_to_say = color + " ring."
+
+        add_to_navigation = [
+            ("say_color", string_to_say),
+        ]
+
+
+        # if color == "green":
+        if True:
+
+            ring_location = np.array([msg.pose.position.x, msg.pose.position.y])
+
+            curr_pos = self.get_curr_pos()
+            while curr_pos is None:
+                print("Waiting for point...")
+                time.sleep(0)
+                curr_pos = self.get_curr_pos()
+
+            curr_pos_location = np.array([curr_pos.point.x, curr_pos.point.y])
+
+            vec_to_face_normed = ring_location - curr_pos_location
+            vec_to_face_normed /= np.linalg.norm(vec_to_face_normed)
+
+            ring_location = ring_location - self.ring_parking_dist * vec_to_face_normed
+
+            fi = np.arctan2(vec_to_face_normed[1], vec_to_face_normed[0])
+
+            add_to_navigation.append(("go", (ring_location[0], ring_location[1], fi)))
+            add_to_navigation.append(("park", None))
+
+            self.set_top_camera("park")
+            
+        add_to_navigation.append(self.last_destination_goal)
+
+
+        self.prepend_to_nav_list(add_to_navigation, spin_full_after_go=False)
+
+        self.cancel_goal = True
+        # self.cancelTask()
+
+
+    def cylinder_detected_callback(self, msg):
+        
+        self.info("Cylinder detected!")
+
+        r = int(msg.color.r * 255)
+        g = int(msg.color.g * 255)
+        b = int(msg.color.b * 255)
+
+        h, s, v = self.rgb2hsv(r, g, b)
+
+        color = ""
+        if(v < 0.1):
+            color = "black"
+        elif h < 15 or h > 350:
+            color = "red"
+        elif h > 20 and h < 65:
+            color = "yellow"
+        elif h > 65 and h < 150:
+            color = "green"
+        elif h > 180 and h < 265:
+            color = "blue"
+
+        string_to_say = color + " cylinder"
+
+        add_to_navigation = [
+            ("say_color", string_to_say),
+            self.last_destination_goal
+        ]
+
+        self.prepend_to_nav_list(add_to_navigation, spin_full_after_go=False)
+
+        self.cancel_goal = True
+        # self.cancelTask()
+
+
+    def top_img_stats_callback(self, msg):
+
+        # We decided to abuse the twist message so we don't have to make our own one.
+
+        # The ordering is the same that we get from get_area_and_centroid() and img.shape in image_gatherer.py
+        # Names msg.linear.x don't necessarily mean the x coodrinate. It is simply the first of the two components.
+
+        centroid = (msg.linear.x, msg.linear.y)
+        area = msg.linear.z
+        shape = (int(msg.angular.x), int(msg.angular.y))
+
+        self.latest_top_img_stats = (centroid, area, shape)
+        self.top_img_changed = True
+    
+    
+    def get_latest_top_img_stats(self):
+        top_img_has_changed = self.top_img_changed
+        self.top_img_changed = False
+        return self.latest_top_img_stats[0], self.latest_top_img_stats[1], self.latest_top_img_stats[2], top_img_has_changed
+    
+
+    def get_top_img_stats_with_waiting_for_change(self):
+
+        centroid, area, shape, top_img_has_changed = self.get_latest_top_img_stats()
+
+        is_none_present = area is None or centroid is None or shape is None
+
+        cycle_duration = 1000    # miliseconds
+        cycle_start_time = time.time()
+        while is_none_present or not top_img_has_changed:
+            
+            if (time.time() - cycle_start_time) >= cycle_duration:
+                cycle_start_time = time.time()
+                print("Waiting for new image stats...")
+            
+            self.wait_by_spinning()
+            centroid, area, shape, top_img_has_changed = self.get_latest_top_img_stats()
+        
+        
+        
+        return centroid, area, shape
+
+
+
+    # Questioning and paintings:
+
+    def face_or_painting(self):
+
+        self.say_question()
+
+        
+
+
+    # Basic navigation:
+
+
+    def get_curr_pos(self):
+            # Create a PointStamped in the /base_link frame of the robot
+            # The point is located 0.5m in from of the robot
+            # "Stamped" means that the message type contains a Header
+            point_in_robot_frame = PointStamped()
+            point_in_robot_frame.header.frame_id = "/base_link"
+            point_in_robot_frame.header.stamp = self.get_clock().now().to_msg()
+
+            point_in_robot_frame.point.x = 0.
+            point_in_robot_frame.point.y = 0.
+            point_in_robot_frame.point.z = 0.
+
+            # Now we look up the transform between the base_link and the map frames
+            # and then we apply it to our PointStamped
+
+
+            time_now = rclpy.time.Time()
+            timeout =rclpyDuration(seconds=0.1)
+            try:
+                # An example of how you can get a transform from /base_link frame to the /map frame
+                # as it is at time_now, wait for timeout for it to become available
+                trans = self.tf_buffer.lookup_transform("map", "base_link", time_now, timeout)
+                self.get_logger().info(f"Looks like the transform is available.")
+
+                # Now we apply the transform to transform the point_in_robot_frame to the map frame
+                # The header in the result will be copied from the Header of the transform
+                point_in_map_frame = tfg.do_transform_point(point_in_robot_frame, trans)
+                self.get_logger().info(f"We transformed a PointStamped!")
+
+                return point_in_map_frame
+
+
+            except TransformException as te:
+                self.get_logger().info(f"Cound not get the transform: {te}")
+    
+
+    def goToPose(self, pose, behavior_tree=''):
+        """Send a `NavToPose` action request."""
+        self.debug("Waiting for 'NavigateToPose' action server")
+        while not self.nav_to_pose_client.wait_for_server(timeout_sec=1.0):
+            self.info("'NavigateToPose' action server not available, waiting...")
+
+        goal_msg = NavigateToPose.Goal()
+        goal_msg.pose = pose
+        goal_msg.behavior_tree = behavior_tree
+
+        self.info('Navigating to goal: ' + str(pose.pose.position.x) + ' ' +
+                  str(pose.pose.position.y) + '...')
+        send_goal_future = self.nav_to_pose_client.send_goal_async(goal_msg,
+                                                                   self._feedbackCallback)
+        
+        rclpy.spin_until_future_complete(self, send_goal_future)
+        self.goal_handle = send_goal_future.result()
+
+        if not self.goal_handle.accepted:
+            self.error('Goal to ' + str(pose.pose.position.x) + ' ' +
+                       str(pose.pose.position.y) + ' was rejected!')
+            return False
+
+        self.result_future = self.goal_handle.get_result_async()
+        return True
+
+
+    def cancelTask(self):
+        """Cancel pending task request of any type."""
+        self.info('Canceling current task.')
+        if self.result_future:
+            future = self.goal_handle.cancel_goal_async()
+            rclpy.spin_until_future_complete(self, future)
+        return
+
+
+    def spin(self, spin_dist=1.57, time_allowance=10, print_info=True):
+        self.debug("Waiting for 'Spin' action server")
+        while not self.spin_client.wait_for_server(timeout_sec=1.0):
+            self.info("'Spin' action server not available, waiting...")
+        goal_msg = Spin.Goal()
+        goal_msg.target_yaw = spin_dist
+        goal_msg.time_allowance = Duration(sec=time_allowance)
+
+        if print_info:
+            self.info(f'Spinning to angle {goal_msg.target_yaw}....')
+        send_goal_future = self.spin_client.send_goal_async(goal_msg, self._feedbackCallback)
+        rclpy.spin_until_future_complete(self, send_goal_future)
+        self.goal_handle = send_goal_future.result()
+
+        if not self.goal_handle.accepted:
+            self.error('Spin request was rejected!')
+            return False
+
+        self.result_future = self.goal_handle.get_result_async()
+        return True
+
+
+    def add_to_nav_list(self, to_add_list, spin_full_after_go=False):
+
+        for tup in to_add_list:
+            if tup[0] == "go":
+                self.navigation_list.append(("go", self.get_pose_obj(*tup[1]), tup[1]))
+                if spin_full_after_go:
+                    self.navigation_list.append(("spin", 6.28, None))
+            elif tup[0] == "spin":
+                self.navigation_list.append(("spin", tup[1], None))
+            elif tup[0] == "face_or_painting":
+                self.navigation_list.append(("face_or_painting", None, None))
+            elif tup[0] == "say_color":
+                self.navigation_list.append(("say_color", tup[1], None))
+            elif tup[0] == "park":
+                self.navigation_list.append(("park", None, None))
+
+
+    def prepend_to_nav_list(self, to_add_list, spin_full_after_go=False):
+
+        for tup in reversed(to_add_list):
+            if tup[0] == "go":
+                self.navigation_list.insert(0, ("go", self.get_pose_obj(*tup[1]), tup[1]))
+                if spin_full_after_go:
+                    self.navigation_list.insert(0, ("spin", 6.28, None))
+            elif tup[0] == "spin":
+                self.navigation_list.insert(0, ("spin", tup[1], None))
+            elif tup[0] == "face_or_painting":
+                self.navigation_list.insert(0, ("face_or_painting", None, None))
+            elif tup[0] == "say_color":
+                self.navigation_list.insert(0, ("say_color", tup[1], None))
+            elif tup[0] == "park":
+                self.navigation_list.insert(0, ("park", None, None))
+
+
+    # Parking:
+
+    def wait_by_spinning(self, spin_dist=2*3.14 * 1e-7, spin_seconds=1):
+        # Keep spin seconds low so that we remain in almost the same place.
+        # Spin seconds has to be int.
+        spin_dir = self.waiting_spin_dir
+        self.waiting_spin_dir = -self.waiting_spin_dir
+
+        self.spin(spin_dir * spin_dist, spin_seconds, print_info=False)
+
     def cmd_vel(self, direction, miliseconds, linear_velocity=20.0):
         # Directions: "forward", "right", "left", "backward"
         # miliseconds: how long to move
@@ -816,11 +937,6 @@ class RobotCommander(Node):
 
 
         print("Parking complete!")
-        
-
-
-
-        
 
     def top_camera_centre_robot_to_blob_centre(self, acceptable_error=10, milliseconds=15, printout=False):
 
@@ -843,7 +959,6 @@ class RobotCommander(Node):
 
             centroid, _, shape = self.get_top_img_stats_with_waiting_for_change()
 
-
     def top_camera_reduce_blob_area(self, acceptable_area=100, milliseconds=1, printout=False):
 
         _, area, _ = self.get_top_img_stats_with_waiting_for_change()
@@ -857,84 +972,12 @@ class RobotCommander(Node):
         
         
 
+    # Speech related:
 
-
-
-
-
-    def info(self, msg):
-        self.get_logger().info(msg)
-        return
-
-    def warn(self, msg):
-        self.get_logger().warn(msg)
-        return
-
-    def error(self, msg):
-        self.get_logger().error(msg)
-        return
-
-    def debug(self, msg):
-        self.get_logger().debug(msg)
-        return
-
-
-    def get_pose_obj(self, x, y, fi):
-
-        goal_pose = PoseStamped()
-        goal_pose.header.frame_id = 'map'
-        goal_pose.header.stamp = self.get_clock().now().to_msg()
-
-        goal_pose.pose.position.x = x
-        goal_pose.pose.position.y = y
-        goal_pose.pose.orientation = self.YawToQuaternion(fi)
-
-        return goal_pose
-    
-
-    def add_to_nav_list(self, to_add_list, spin_full_after_go=False):
-
-        for tup in to_add_list:
-            if tup[0] == "go":
-                self.navigation_list.append(("go", self.get_pose_obj(*tup[1]), tup[1]))
-                if spin_full_after_go:
-                    self.navigation_list.append(("spin", 6.28, None))
-            elif tup[0] == "spin":
-                self.navigation_list.append(("spin", tup[1], None))
-            elif tup[0] == "say_hi":
-                self.navigation_list.append(("say_hi", None, None))
-            elif tup[0] == "say_color":
-                self.navigation_list.append(("say_color", tup[1], None))
-            elif tup[0] == "park":
-                self.navigation_list.append(("park", None, None))
-
-
-    def prepend_to_nav_list(self, to_add_list, spin_full_after_go=False):
-
-        for tup in reversed(to_add_list):
-            if tup[0] == "go":
-                self.navigation_list.insert(0, ("go", self.get_pose_obj(*tup[1]), tup[1]))
-                if spin_full_after_go:
-                    self.navigation_list.insert(0, ("spin", 6.28, None))
-            elif tup[0] == "spin":
-                self.navigation_list.insert(0, ("spin", tup[1], None))
-            elif tup[0] == "say_hi":
-                self.navigation_list.insert(0, ("say_hi", None, None))
-            elif tup[0] == "say_color":
-                self.navigation_list.insert(0, ("say_color", tup[1], None))
-            elif tup[0] == "park":
-                self.navigation_list.insert(0, ("park", None, None))
-
-    # def say_hi(self):
-    #     playsound("src/RINS-task-2/voice/zivjo.mp3")
-    #     self.faces_greeted += 1
-    
-    def say_color(self, color: str):
-        
-        self.info(color)
+    def say(self, what_to_say):
 
         mp3_fp = BytesIO()
-        tts = gTTS(color, lang="en")
+        tts = gTTS(what_to_say, lang="en")
         tts.write_to_fp(mp3_fp)
         mp3_fp.seek(0)
 
@@ -954,6 +997,18 @@ class RobotCommander(Node):
         #v.play()
 
 
+    def say_question(self):
+
+        question = "Do you know what color the ring is?"
+        self.say(question)
+    
+    def say_color(self, color: str):
+        
+        self.info(color)
+        self.say(color)
+
+        
+
 
 
 
@@ -967,7 +1022,7 @@ def main(args=None):
     rc.waitUntilNav2Active()
 
 
-    rc.parking_camera()
+    rc.set_top_camera("park")
 
     # Check if the robot is docked, only continue when a message is recieved
     while rc.is_docked is None:
@@ -995,7 +1050,7 @@ def main(args=None):
         
 
     # contains tuples of three types:
-    # ("go", <PoseStamped object>), ("spin", angle_to_spin_by), ("say_hi", None)
+    # ("go", <PoseStamped object>), ("spin", angle_to_spin_by), ("face_or_painting", None)
     
 
     # UP = 0.0
@@ -1071,16 +1126,14 @@ def main(args=None):
         elif curr_type == "spin":
             rc.spin(curr_goal)
 
-        # elif curr_type == "say_hi":
-        #     rc.say_hi()
-        #     if rc.faces_greeted == 3:
-        #         break
+        elif curr_type == "face_or_painting":
+            rc.face_or_painting()
         
         elif curr_type == "say_color":
             rc.say_color(curr_goal)
         
         elif curr_type == "park":
-            rc.parking_camera()
+            rc.set_top_camera("park")
             rc.park()
         
 
