@@ -7,7 +7,9 @@
 
 ## Plan:
 
-- sprememba resolutiona kamer na nekoliko boljše
+- za task3 se map ne ujema več. Posnet nov map in ga uredit.
+
+- morda sprememba resolutiona kamer na nekoliko boljše
 - da ob srečanju facea spoznamo, če je painting ali ne, in glede na okvir to sliko izrežemo ven in shranimo. Če ni painting, pa nagovorimo, če je state 0 ali 1.
 - STT za odgovor nagovarjanja.
 

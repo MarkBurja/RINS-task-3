@@ -724,23 +724,57 @@ class RobotCommander(Node):
 
 
     def get_red_pixels_thresholded(self, img):
+
+
         hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
 
-        hue_img = hsv_img[:,:,0]
-        val_img = hsv_img[:,:,2]
+        # hue_img = hsv_img[:,:,0]
 
-        hue_low_treshold = 50
-        hue_low_img =  hue_img > hue_low_treshold
+        # hue_low_treshold = 50
+        # hue_low_img =  hue_img > hue_low_treshold
 
-        hue_high_treshold = 70
-        hue_high_img =  hue_img < hue_high_treshold
-
-        val_low_treshold = 10
-        val_img = val_img > val_low_treshold
+        # hue_high_treshold = 70
+        # hue_high_img =  hue_img < hue_high_treshold
 
 
-        colour_tresholded = np.logical_and(hue_low_img, hue_high_img, val_img)
+
+
+        red_img = img[:,:,2]
+
+        red_low_treshold = 30
+        red_low_img = red_img > red_low_treshold
+
+        # red_high_treshold = 70
+        # red_high_img = red_img < red_high_treshold
+
+
+
+        green_img = img[:,:,1]
+
+        green_high_treshold = 7
+        green_img = green_img < green_high_treshold
+
+
+        blue_img = img[:,:,0]
+
+        blue_high_treshold = 7
+        blue_img = blue_img < blue_high_treshold
+
+
+
+        # val_img = hsv_img[:,:,2]
+        
+        # val_low_treshold = 10
+        # val_img = val_img > val_low_treshold
+
+        colour_tresholded = np.logical_and(red_low_img, green_img)
+        temp_list = [blue_img] #, val_img]
+        for t in temp_list:
+            colour_tresholded = np.logical_and(colour_tresholded, t)
+
+        # colour_tresholded = np.logical_and(hue_low_img, hue_high_img, val_img)
+        # colour_tresholded = np.logical_and(red_low_img, green_img, blue_img, val_img)
         
         colour_tresholded = colour_tresholded.astype(np.uint8)
 
@@ -765,6 +799,7 @@ class RobotCommander(Node):
             exit()
         
         red_frame = self.get_red_pixels_thresholded(curr_img)
+
         red_frame_to_show = curr_img.copy()
         for i in range(3):
             red_frame_to_show[:,:,i] = red_frame_to_show[:,:,i] * red_frame
@@ -773,6 +808,169 @@ class RobotCommander(Node):
         if key==27:
             print("exiting")
             exit()
+
+
+        # If less than 10 pixels are red, we assume that there is no frame.
+        if red_frame.sum() < 10:
+            print("No frame found!")
+            return
+        
+
+
+
+        # contours, _ = cv2.findContours(red_frame, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        # if contours:
+        #     # Find the largest contour which will correspond to the red frame
+        #     largest_contour = max(contours, key=cv2.contourArea)
+        #     x, y, w, h = cv2.boundingRect(largest_contour)
+
+
+        #     cropped_image = curr_img[y:y+h, x:x+w]
+
+
+        #     # Example: Convert to grayscale and apply a binary threshold
+        #     gray_image = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
+        #     _, thresholded_image = cv2.threshold(gray_image, 128, 255, cv2.THRESH_BINARY)
+
+        #     cv2.imshow("Tresholded img:", thresholded_image)
+        #     key = cv2.waitKey(1)
+        #     if key==27:
+        #         print("exiting")
+        #         exit()
+
+
+
+
+
+
+
+
+        # # Show all child contours:
+
+        # image = red_frame_to_show.copy()
+
+
+        # # Assuming `red_frame` is a binary mask of the red areas
+        # contours, hierarchy = cv2.findContours(red_frame, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+        # # Loop through the contour and hierarchy list
+        # for i in range(len(contours)):
+        #     # Check if the contour has a parent, indicating it is inside another contour
+        #     if hierarchy[0][i][3] != -1:
+        #         inner_contour = contours[i]
+        #         cv2.drawContours(image, [inner_contour], -1, (0, 255, 0), 2)
+        
+        # while True:
+        #     cv2.imshow("Inner contours", image)
+        #     key = cv2.waitKey(1)
+        #     if key==27:
+        #         print("exiting")
+        #         exit()
+
+
+
+
+        image = red_frame.copy()
+        image[:,:] = 0
+
+        # Assuming 'image' is your preprocessed image (grayscale and thresholded)
+        contours, hierarchy = cv2.findContours(image, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+        if len(contours) == 0:
+            print("No contours found!" + 5*"\n")
+            contours, _ = cv2.findContours(red_frame, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+            if contours:
+                print("Num of new contours: ", len(contours))
+                # Find the largest contour which will correspond to the red frame
+
+                # This sometimes finds some specs. But interestingly, the frame seems to always be just one contour.
+                contour = max(contours, key=cv2.contourArea)
+                x, y, w, h = cv2.boundingRect(contour)
+            
+        elif len(contours) == 1:
+            print("Only one contour found!" + 5*"\n")
+
+            contour = contours[0]
+            x, y, w, h = cv2.boundingRect(contour)
+            
+            cv2.drawContours(image, [contour], -1, (0, 255, 0), 2)
+
+            cv2.imshow("Inner contours", image)
+            key = cv2.waitKey(1)
+            if key==27:
+                print("exiting")
+                exit()
+
+
+        else:
+
+            hierarchy = hierarchy[0]  # Get the first item in hierarchy structure
+
+            innermost_contours = []
+            for i, (contour, hier) in enumerate(zip(contours, hierarchy)):
+                # Check if the contour has no children and has a parent
+                
+                cv2.imshow("Contour", image)
+                key = cv2.waitKey(1)
+                if key==27:
+                    print("exiting")
+                    exit()
+                input("Press Enter to continue...")
+
+                if hier[2] < 0 and hier[3] != -1:
+                    innermost_contours.append(contour)
+
+            if len(innermost_contours) > 1:
+                print("More than one innermost contour found!" + 5*"\n")
+            
+            if len(innermost_contours) == 0:
+                print("No innermost contour found!" + 5*"\n")
+                return
+
+            for contour in innermost_contours:
+                cv2.drawContours(image, [contour], -1, (0, 255, 0), 2)
+            
+            contour = innermost_contours[0]
+
+            
+            while True:
+                cv2.imshow("Inner contours", image)
+                key = cv2.waitKey(1)
+                if key==27:
+                    print("exiting")
+                    exit()
+
+
+
+        x, y, w, h = cv2.boundingRect(contour)
+
+        # Example points (you need to define these based on your specific case)
+        src_points = np.array([[x, y], [x+w, y], [x, y+h], [x+w, y+h]], dtype='float32')
+
+        dst_points = np.array([[0, 0], [w, 0], [0, h], [w, h]], dtype='float32')  # Destination points
+
+        # Compute the homography matrix
+        H, _ = cv2.findHomography(src_points, dst_points)
+
+        # paint_w, paint_h = 240, 320
+        # transformed_image = cv2.warpPerspective(curr_img, H, (curr_img.shape[1], curr_img.shape[0]))
+        transformed_image = cv2.warpPerspective(curr_img, H, (w, h))
+
+        cv2.imshow("Homography:", transformed_image)
+        key = cv2.waitKey(1)
+        if key==27:
+            print("exiting")
+            exit()
+
+
+
+
+
+
+
+
 
         # self.say_question()
 
