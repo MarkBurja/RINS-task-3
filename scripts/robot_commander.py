@@ -95,7 +95,7 @@ class RobotCommander(Node):
 
 
         self.pose_frame_id = 'map'
-        
+
         # Flags and helper variables
         self.goal_handle = None
         self.cancel_goal = False
@@ -118,7 +118,7 @@ class RobotCommander(Node):
                          "width":None,
                          "height":None,
                          "origin":None} # origin will be in the format [x,y,theta]
-        
+
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -126,7 +126,7 @@ class RobotCommander(Node):
 
         # # rc.point_hash(point) to point_in_map_frame. This way we don't duplicate points.
         # self.detected_faces = {}
-        
+
         # self.face_marker_sub = self.create_subscription(Marker, "/people_marker", self.face_detect_callback, QoSReliabilityPolicy.BEST_EFFORT)
 
 
@@ -137,24 +137,28 @@ class RobotCommander(Node):
                                  'dock_status',
                                  self._dockCallback,
                                  qos_profile_sensor_data)
-        
+
         self.localization_pose_sub = self.create_subscription(PoseWithCovarianceStamped,
                                                               'amcl_pose',
                                                               self._amclPoseCallback,
                                                               amcl_pose_qos)
-        
+
 
         self.face_sub = self.create_subscription(Marker, "/detected_faces", self.face_detected_callback, QoSReliabilityPolicy.BEST_EFFORT)
         self.cylinder_sub = self.create_subscription(Marker, "/detected_cylinder", self.cylinder_detected_callback, QoSReliabilityPolicy.BEST_EFFORT)
         self.ring_sub = self.create_subscription(Marker, "/detected_rings", self.ring_detected_callback, QoSReliabilityPolicy.BEST_EFFORT)
-        
+
         # Here we abuse the Twist message because we don't want to go making our own one.
         self.top_img_stats_sub = self.create_subscription(Twist, "/top_img_stats", self.top_img_stats_callback, QoSReliabilityPolicy.BEST_EFFORT)
         self.latest_top_img_stats = (None, None, None) # (centroid, area, shape)
         self.top_img_changed = False
 
+        self.bridge = CvBridge()
+        self.rgb_image_sub = self.create_subscription(Image, "/oakd/rgb/preview/image_raw", self.front_camera_img_saver, qos_profile_sensor_data)
+        self.save_front_camera_img = False
+        self.front_image_has_changed = False
 
-        
+
 
         # ROS2 publishers
         self.initial_pose_pub = self.create_publisher(PoseWithCovarianceStamped,
@@ -177,10 +181,10 @@ class RobotCommander(Node):
 
 
         self.get_logger().info(f"Robot commander has been initialized!")
-        
+
     def destroyNode(self):
         self.nav_to_pose_client.destroy()
-        super().destroy_node()     
+        super().destroy_node()
 
 
 
@@ -214,7 +218,7 @@ class RobotCommander(Node):
         goal_pose.pose.orientation = self.YawToQuaternion(fi)
 
         return goal_pose
-    
+
 
 
     # Transformation functions:
@@ -225,7 +229,7 @@ class RobotCommander(Node):
         assert not self.map_data["resolution"] is None
 
         # Apply resolution, change of origin, and translation
-        # 
+        #
         world_x = x*self.map_data["resolution"] + self.map_data["origin"][0]
         world_y = (self.map_data["height"]-y)*self.map_data["resolution"] + self.map_data["origin"][1]
 
@@ -241,10 +245,10 @@ class RobotCommander(Node):
         # x is the first coordinate, which in opencv (numpy) that is the matrix row - vertical
         x = int((world_x - self.map_data["origin"][0])/self.map_data["resolution"])
         y = int(self.map_data["height"] - (world_y - self.map_data["origin"][1])/self.map_data["resolution"] )
-        
+
         # Apply rotation
         return x, y
-    
+
 
     # General RC stuff:
 
@@ -357,7 +361,7 @@ class RobotCommander(Node):
                 self.debug(f'Result of get_state: {state}')
             time.sleep(2)
         return
-    
+
     def YawToQuaternion(self, angle_z = 0.):
         quat_tf = quaternion_from_euler(0, 0, angle_z)
 
@@ -375,7 +379,7 @@ class RobotCommander(Node):
         self.debug('Received action feedback message')
         self.feedback = msg.feedback
         return
-    
+
     def _dockCallback(self, msg: DockStatus):
         self.is_docked = msg.is_docked
 
@@ -484,12 +488,28 @@ class RobotCommander(Node):
         cv2.imshow("Just for showing what is in rc.map_np", self.map_np)
         cv2.waitKey(1000)
 
+    def get_colour_str_from_hue_and_val(self, h, v):
+
+        color = ""
+        if(v < 0.1):
+            color = "black"
+        elif h < 15 or h > 350:
+            color = "red"
+        elif h > 20 and h < 65:
+            color = "yellow"
+        elif h > 65 and h < 150:
+            color = "green"
+        elif h > 180 and h < 265:
+            color = "blue"
+        
+        return color
+
 
 
     # Various permanent setters:
 
 
-    
+
     def set_top_camera(self, pos_str="normal"):
 
         sending_str = ""
@@ -535,12 +555,12 @@ class RobotCommander(Node):
 
 
     def face_detected_callback(self, msg):
-        
+
         self.info("Face detected!")
 
         face_location = np.array([msg.pose.position.x, msg.pose.position.y])
 
-        curr_pos = self.get_curr_pos()  
+        curr_pos = self.get_curr_pos()
         curr_pos_location = np.array([curr_pos.point.x, curr_pos.point.y])
 
         vec_to_face_normed = face_location - curr_pos_location
@@ -571,17 +591,8 @@ class RobotCommander(Node):
 
         h, s, v = self.rgb2hsv(r, g, b)
 
-        color = ""
-        if(v < 0.1):
-            color = "black"
-        elif h < 15 or h > 350:
-            color = "red"
-        elif h > 20 and h < 65:
-            color = "yellow"
-        elif h > 65 and h < 150:
-            color = "green"
-        elif h > 180 and h < 265:
-            color = "blue"
+        color = self.get_colour_str_from_hue_and_val(h, v)
+        
 
         string_to_say = color + " ring."
 
@@ -614,7 +625,7 @@ class RobotCommander(Node):
             add_to_navigation.append(("park", None))
 
             self.set_top_camera("park")
-            
+
         add_to_navigation.append(self.last_destination_goal)
 
 
@@ -625,7 +636,7 @@ class RobotCommander(Node):
 
 
     def cylinder_detected_callback(self, msg):
-        
+
         self.info("Cylinder detected!")
 
         r = int(msg.color.r * 255)
@@ -634,19 +645,9 @@ class RobotCommander(Node):
 
         h, s, v = self.rgb2hsv(r, g, b)
 
-        color = ""
-        if(v < 0.1):
-            color = "black"
-        elif h < 15 or h > 350:
-            color = "red"
-        elif h > 20 and h < 65:
-            color = "yellow"
-        elif h > 65 and h < 150:
-            color = "green"
-        elif h > 180 and h < 265:
-            color = "blue"
+        color = self.get_colour_str_from_hue_and_val(h, v)
 
-        string_to_say = color + " cylinder"
+        string_to_say = color + " cylinder."
 
         add_to_navigation = [
             ("say_color", string_to_say),
@@ -672,13 +673,13 @@ class RobotCommander(Node):
 
         self.latest_top_img_stats = (centroid, area, shape)
         self.top_img_changed = True
-    
-    
+
+
     def get_latest_top_img_stats(self):
         top_img_has_changed = self.top_img_changed
         self.top_img_changed = False
         return self.latest_top_img_stats[0], self.latest_top_img_stats[1], self.latest_top_img_stats[2], top_img_has_changed
-    
+
 
     def get_top_img_stats_with_waiting_for_change(self):
 
@@ -689,27 +690,93 @@ class RobotCommander(Node):
         cycle_duration = 1000    # miliseconds
         cycle_start_time = time.time()
         while is_none_present or not top_img_has_changed:
-            
+
             if (time.time() - cycle_start_time) >= cycle_duration:
                 cycle_start_time = time.time()
                 print("Waiting for new image stats...")
-            
+
             self.wait_by_spinning()
             centroid, area, shape, top_img_has_changed = self.get_latest_top_img_stats()
-        
-        
-        
+
+
+
         return centroid, area, shape
 
+
+    def front_camera_img_saver(self, data):
+
+        if True or self.save_front_camera_img:
+            try:
+                self.front_image = self.bridge.imgmsg_to_cv2(data, "bgr8").copy()
+                
+                # cv2.imshow("Front camera image Original", self.front_image)
+                # key = cv2.waitKey(1)
+                # if key==27:
+                #     print("exiting")
+                #     exit()
+
+                self.front_image_has_changed = True
+            except CvBridgeError as e:
+                print(e)
 
 
     # Questioning and paintings:
 
+
+    def get_red_pixels_thresholded(self, img):
+        hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+
+
+        hue_img = hsv_img[:,:,0]
+        val_img = hsv_img[:,:,2]
+
+        hue_low_treshold = 50
+        hue_low_img =  hue_img > hue_low_treshold
+
+        hue_high_treshold = 70
+        hue_high_img =  hue_img < hue_high_treshold
+
+        val_low_treshold = 10
+        val_img = val_img > val_low_treshold
+
+
+        colour_tresholded = np.logical_and(hue_low_img, hue_high_img, val_img)
+        
+        colour_tresholded = colour_tresholded.astype(np.uint8)
+
+        return colour_tresholded
+
+
     def face_or_painting(self):
 
-        self.say_question()
+        self.save_front_camera_img = True
 
+        while not self.front_image_has_changed:
+            self.wait_by_spinning()
         
+        curr_img = self.front_image
+        self.save_front_camera_img = False
+        self.front_image_has_changed = False
+
+        cv2.imshow("Front camera image", curr_img)
+        key = cv2.waitKey(1)
+        if key==27:
+            print("exiting")
+            exit()
+        
+        red_frame = self.get_red_pixels_thresholded(curr_img)
+        red_frame_to_show = curr_img.copy()
+        for i in range(3):
+            red_frame_to_show[:,:,i] = red_frame_to_show[:,:,i] * red_frame
+        cv2.imshow("Red frame", red_frame_to_show)
+        key = cv2.waitKey(1)
+        if key==27:
+            print("exiting")
+            exit()
+
+        # self.say_question()
+
+
 
 
     # Basic navigation:
@@ -749,7 +816,7 @@ class RobotCommander(Node):
 
             except TransformException as te:
                 self.get_logger().info(f"Cound not get the transform: {te}")
-    
+
 
     def goToPose(self, pose, behavior_tree=''):
         """Send a `NavToPose` action request."""
@@ -765,7 +832,7 @@ class RobotCommander(Node):
                   str(pose.pose.position.y) + '...')
         send_goal_future = self.nav_to_pose_client.send_goal_async(goal_msg,
                                                                    self._feedbackCallback)
-        
+
         rclpy.spin_until_future_complete(self, send_goal_future)
         self.goal_handle = send_goal_future.result()
 
@@ -847,7 +914,7 @@ class RobotCommander(Node):
 
     def wait_by_spinning(self, spin_dist=2*3.14 * 1e-7, spin_seconds=1):
         # Keep spin seconds low so that we remain in almost the same place.
-        # Spin seconds has to be int.
+        # Spin seconds has to be int, so instead we keep the distance low.
         spin_dir = self.waiting_spin_dir
         self.waiting_spin_dir = -self.waiting_spin_dir
 
@@ -867,8 +934,8 @@ class RobotCommander(Node):
             velocity.angular.z = -0.5
         elif direction == "right":
             velocity.angular.z = 0.5
-        
-        
+
+
         self.parking_pub.publish(velocity)
 
 
@@ -884,7 +951,7 @@ class RobotCommander(Node):
         self.parking_pub.publish(velocity)
 
     def park(self):
-        
+
         # Just here to wait until we get the first image, if that hasn't happened yet.
         _, _, _ = self.get_top_img_stats_with_waiting_for_change()
 
@@ -909,12 +976,12 @@ class RobotCommander(Node):
 
             while not self.isTaskComplete():
                 time.sleep(0)
-            
+
             _, area, _ = self.get_top_img_stats_with_waiting_for_change()
-            
+
             angles.append(fi)
             areas_at_angles.append(area)
-        
+
 
         max_area_ix = areas_at_angles.index(max(areas_at_angles))
         chosen_fi = angles[max_area_ix]
@@ -940,12 +1007,12 @@ class RobotCommander(Node):
 
     def top_camera_centre_robot_to_blob_centre(self, acceptable_error=10, milliseconds=15, printout=False):
 
-        centroid, _, shape = self.get_top_img_stats_with_waiting_for_change()        
-        
+        centroid, _, shape = self.get_top_img_stats_with_waiting_for_change()
+
         img_middle_x = shape[1] / 2
 
         while not(np.abs(centroid[0] - img_middle_x) < acceptable_error):
-            
+
             if(printout):
                 print("Centroid[0]: ", centroid[0])
                 print("img_middle_x: ", img_middle_x)
@@ -969,8 +1036,8 @@ class RobotCommander(Node):
 
             self.cmd_vel("forward", milliseconds)
             _, area, _ = self.get_top_img_stats_with_waiting_for_change()
-        
-        
+
+
 
     # Speech related:
 
@@ -987,7 +1054,7 @@ class RobotCommander(Node):
         pygame.mixer.music.play()
         while pygame.mixer.music.get_busy():
             pygame.time.Clock().tick(10)
-        
+
         #Če Pygame ne dela:
         #tts.save("color.mp3")
         #playsound("/color.mp3")
@@ -1001,13 +1068,13 @@ class RobotCommander(Node):
 
         question = "Do you know what color the ring is?"
         self.say(question)
-    
+
     def say_color(self, color: str):
-        
+
         self.info(color)
         self.say(color)
 
-        
+
 
 
 
@@ -1031,7 +1098,7 @@ def main(args=None):
     # If it is docked, undock it first
     if rc.is_docked:
         rc.undock()
-    
+
 
 
 
@@ -1047,11 +1114,11 @@ def main(args=None):
     # Use Publish Point to hover and see the coordinates.
     # x: -2 to 4
     # y: -2.5 to 5
-        
+
 
     # contains tuples of three types:
     # ("go", <PoseStamped object>), ("spin", angle_to_spin_by), ("face_or_painting", None)
-    
+
 
     # UP = 0.0
     # RIGHT = 1.57
@@ -1064,7 +1131,7 @@ def main(args=None):
     RIGHT = 4.71
 
     add_to_navigation = [
-        
+
         ("go", (-0.65, 0., DOWN)),
 
         ("go", (1.1, -2., UP)),
@@ -1117,7 +1184,7 @@ def main(args=None):
 
 
         curr_type, curr_goal, curr_goal_coordinates = rc.navigation_list[0]
-        
+
         if curr_type == "go":
 
             rc.last_destination_goal = (curr_type, curr_goal_coordinates)
@@ -1128,14 +1195,14 @@ def main(args=None):
 
         elif curr_type == "face_or_painting":
             rc.face_or_painting()
-        
+
         elif curr_type == "say_color":
             rc.say_color(curr_goal)
-        
+
         elif curr_type == "park":
             rc.set_top_camera("park")
             rc.park()
-        
+
 
         del rc.navigation_list[0]
 
@@ -1156,17 +1223,17 @@ def main(args=None):
 
             time.sleep(1)
 
-        
-        
-    
+
+
+
         # input("Enter sth to continue.")
-        
-    
+
+
     input("Navigation list completed, waiting to terminate. Enter anything.")
-        
+
 
     """# Example
-    if False:    
+    if False:
         # Finally send it a goal to reach
         goal_pose = PoseStamped()
         goal_pose.header.frame_id = 'map'
