@@ -239,7 +239,7 @@ class RobotCommander(Node):
 
         add_to_navigation = [
             ("go", (face_goal_location[0], face_goal_location[1], fi)),
-            ("say_hi", 0),
+            # ("say_hi", 0),
             ("spin", 3.14),
             self.last_destination_goal
         ]
@@ -925,9 +925,9 @@ class RobotCommander(Node):
             elif tup[0] == "park":
                 self.navigation_list.insert(0, ("park", None, None))
 
-    def say_hi(self):
-        playsound("src/RINS-task-2/voice/zivjo.mp3")
-        self.faces_greeted += 1
+    # def say_hi(self):
+    #     playsound("src/RINS-task-2/voice/zivjo.mp3")
+    #     self.faces_greeted += 1
     
     def say_color(self, color: str):
         
@@ -1071,10 +1071,10 @@ def main(args=None):
         elif curr_type == "spin":
             rc.spin(curr_goal)
 
-        elif curr_type == "say_hi":
-            rc.say_hi()
-            if rc.faces_greeted == 3:
-                break
+        # elif curr_type == "say_hi":
+        #     rc.say_hi()
+        #     if rc.faces_greeted == 3:
+        #         break
         
         elif curr_type == "say_color":
             rc.say_color(curr_goal)

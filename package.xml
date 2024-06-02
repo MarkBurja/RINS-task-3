@@ -1,9 +1,9 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>RINS-task-2</name>
+  <name>RINS-task-3</name>
   <version>0.0.0</version>
-  <description>RINS-task-2</description>
+  <description>RINS-task-3</description>
   <maintainer email="mv9041@student.uni-lj.si">Matevz</maintainer>
 
 

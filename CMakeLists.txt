@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.5)
-project(RINS-task-2)
+project(RINS-task-3)
 
 if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 14)

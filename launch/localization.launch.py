@@ -35,7 +35,7 @@ ARGUMENTS = [
 
 
 def generate_launch_description():
-    pkg_dis_tutorial3 = get_package_share_directory('RINS-task-2')
+    pkg_dis_tutorial3 = get_package_share_directory('RINS-task-3')
     pkg_nav2_bringup = get_package_share_directory('nav2_bringup')
 
     localization_params_arg = DeclareLaunchArgument(
