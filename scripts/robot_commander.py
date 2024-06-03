@@ -97,6 +97,7 @@ class RobotCommander(Node):
         self.pose_frame_id = 'map'
 
         # Flags and helper variables
+        self.state = 0
         self.goal_handle = None
         self.cancel_goal = False
         self.result_future = None
@@ -106,9 +107,19 @@ class RobotCommander(Node):
         self.is_docked = None
 
         self.last_destination_goal = ("go", (0.0, 0.0, 0.57))
-        self.hello_dist = 0.5
+        self.face_dist = 0.5
         self.ring_parking_dist = 0.3
         self.navigation_list = []
+
+
+
+        self.possible_rings = None
+        self.curr_investigated_ring = None
+        self.correct_painting = None
+
+        self.seen_rings = {} # {barva: position np.array}
+        self.seen_cylinders = {} # {barva: position np.array}
+        self.seen_faces = [] # (position np.array;    slika ob pozdravljanju if isPainting else None).
 
 
 
@@ -524,6 +535,57 @@ class RobotCommander(Node):
         msg.data = sending_str
         self.arm_pub.publish(msg)
 
+    def set_state(self, state, params_dict=None):
+
+        if state == 1:
+            self.state = 1
+            self.possible_rings = params_dict["ring_list"]
+
+            if self.possible_rings[0] in self.seen_rings.keys():
+                ring_loc, ring_col = self.seen_rings[self.possible_rings[0]]
+                self.QR_code_sequence(ring_loc, ring_col)
+            elif self.possible_rings[1] in self.seen_rings.keys():
+                ring_loc, ring_col = self.seen_rings[self.possible_rings[1]]
+                self.QR_code_sequence(ring_loc, ring_col)
+            
+            print("self.possible_rings:")
+            print(self.possible_rings)
+
+
+        elif state == 2:
+            self.state = 2
+
+            new_ring_list = params_dict["ring_list"]
+            # if it has two elements, we get their intersection (came from person answer)
+            # if it has one element, that one is wrong (came from wrong QR code)
+            if len(new_ring_list) == 2:
+                self.possible_rings = list(set(self.possible_rings) & set(new_ring_list))
+            elif len(new_ring_list) == 1:
+                self.possible_rings = list(set(self.possible_rings) - set(new_ring_list))
+
+            if self.possible_rings[0] in self.seen_rings.keys():
+                ring_loc, ring_col = self.seen_rings[self.possible_rings[0]]
+                self.QR_code_sequence(ring_loc, ring_col)
+            
+            print("self.possible_rings:")
+            print(self.possible_rings)
+
+        elif state == 3:
+            self.state = 3
+            
+            painting_ixs = []
+            for ix, paint in self.seen_faces:
+                if not paint is None:
+                    painting_ixs.append(ix)
+
+            # show anomalies for existing paintings
+            
+
+        elif state == 4:
+            self.state = 4
+        elif state == 5:
+            self.state = 5
+
 
 
     # Callbacks and their supporting functions:
@@ -556,35 +618,40 @@ class RobotCommander(Node):
 
     def face_detected_callback(self, msg):
 
+        if self.state == 5:
+            return
+
         self.info("Face detected!")
 
         face_location = np.array([msg.pose.position.x, msg.pose.position.y])
 
-        curr_pos = self.get_curr_pos()
-        curr_pos_location = np.array([curr_pos.point.x, curr_pos.point.y])
+        self.seen_faces.append((face_location, None))
 
-        vec_to_face_normed = face_location - curr_pos_location
-        vec_to_face_normed /= np.linalg.norm(vec_to_face_normed)
-
-        face_goal_location = face_location - self.hello_dist * vec_to_face_normed
-
-        fi = np.arctan2(vec_to_face_normed[1], vec_to_face_normed[0])
-
-        add_to_navigation = [
-            ("go", (face_goal_location[0], face_goal_location[1], fi)),
+        
+        add_to_navigation = self.get_nav_goals_to_position(face_location, self.face_dist)
+        
+        add_to_navigation.extend([
             ("face_or_painting", 0),
             ("spin", 3.14),
             self.last_destination_goal
-        ]
+        ])
 
         self.prepend_to_nav_list(add_to_navigation, spin_full_after_go=False)
 
         self.cancel_goal = True
         # self.cancelTask()
 
+
     def ring_detected_callback(self, msg):
+
+        if self.state > 2:
+            return
+
+        
         self.info("Ring detected!")
 
+        ring_location = np.array([msg.pose.position.x, msg.pose.position.y])
+        
         r = int(msg.color.r * 255)
         g = int(msg.color.g * 255)
         b = int(msg.color.b * 255)
@@ -592,47 +659,16 @@ class RobotCommander(Node):
         h, s, v = self.rgb2hsv(r, g, b)
 
         color = self.get_colour_str_from_hue_and_val(h, v)
+
+        self.seen_cylinders[color] = ring_location
+
+
+        if self.possible_rings is None:
+            return
         
+        if color in self.possible_rings:
+            self.QR_code_sequence(ring_location, color)
 
-        string_to_say = color + " ring."
-
-        add_to_navigation = [
-            ("say_color", string_to_say),
-        ]
-
-
-        # if color == "green":
-        if True:
-
-            ring_location = np.array([msg.pose.position.x, msg.pose.position.y])
-
-            curr_pos = self.get_curr_pos()
-            while curr_pos is None:
-                print("Waiting for point...")
-                time.sleep(0)
-                curr_pos = self.get_curr_pos()
-
-            curr_pos_location = np.array([curr_pos.point.x, curr_pos.point.y])
-
-            vec_to_face_normed = ring_location - curr_pos_location
-            vec_to_face_normed /= np.linalg.norm(vec_to_face_normed)
-
-            ring_location = ring_location - self.ring_parking_dist * vec_to_face_normed
-
-            fi = np.arctan2(vec_to_face_normed[1], vec_to_face_normed[0])
-
-            add_to_navigation.append(("go", (ring_location[0], ring_location[1], fi)))
-            add_to_navigation.append(("park", None))
-
-            self.set_top_camera("park")
-
-        add_to_navigation.append(self.last_destination_goal)
-
-
-        self.prepend_to_nav_list(add_to_navigation, spin_full_after_go=False)
-
-        self.cancel_goal = True
-        # self.cancelTask()
 
 
     def cylinder_detected_callback(self, msg):
@@ -647,17 +683,8 @@ class RobotCommander(Node):
 
         color = self.get_colour_str_from_hue_and_val(h, v)
 
-        string_to_say = color + " cylinder."
+        self.seen_cylinders[color] = np.array([msg.pose.position.x, msg.pose.position.y])
 
-        add_to_navigation = [
-            ("say_color", string_to_say),
-            self.last_destination_goal
-        ]
-
-        self.prepend_to_nav_list(add_to_navigation, spin_full_after_go=False)
-
-        self.cancel_goal = True
-        # self.cancelTask()
 
 
     def top_img_stats_callback(self, msg):
@@ -780,6 +807,29 @@ class RobotCommander(Node):
 
         return colour_tresholded
 
+    def get_answer(self):
+        # self.say_question()
+        print("Question not said, because gtts is not working.")
+        self.handle_speech_to_text()
+        
+        
+
+    def handle_speech_to_text(self):
+        allowed_answers = ["black", "red", "yellow", "green", "blue"]
+        answers = []
+        while len(answers) < 2:
+            answer = input("Enter the color of the painting: ")
+            if answer in allowed_answers:
+                answers.append(answer)
+            else:
+                print("Invalid answer. Please try again.")
+                print("Allowed answers are: ", allowed_answers)
+        
+        if self.state == 0:
+            self.set_state(1, {"ring_list": answers})
+        elif self.state == 1:
+            self.set_state(2, {"ring_list": answers})
+
 
     def face_or_painting(self):
 
@@ -813,6 +863,8 @@ class RobotCommander(Node):
         # If less than 10 pixels are red, we assume that there is no frame.
         if red_frame.sum() < 10:
             print("No frame found!")
+            if self.state <= 1:
+                self.get_answer()
             return
         
 
@@ -972,7 +1024,6 @@ class RobotCommander(Node):
 
 
 
-        # self.say_question()
 
 
 
@@ -1089,7 +1140,8 @@ class RobotCommander(Node):
                 self.navigation_list.append(("say_color", tup[1], None))
             elif tup[0] == "park":
                 self.navigation_list.append(("park", None, None))
-
+            elif tup[0] == "read_qr":
+                self.navigation_list.append((("read_qr", None, None)))
 
     def prepend_to_nav_list(self, to_add_list, spin_full_after_go=False):
 
@@ -1106,9 +1158,46 @@ class RobotCommander(Node):
                 self.navigation_list.insert(0, ("say_color", tup[1], None))
             elif tup[0] == "park":
                 self.navigation_list.insert(0, ("park", None, None))
+            elif tup[0] == "read_qr":
+                self.navigation_list.insert(0, ("read_qr", None, None))
+                
+    def get_curr_pos_with_waiting(self):
+        curr_pos = self.get_curr_pos()
+        while curr_pos is None:
+            print("Waiting for point...")
+            time.sleep(0)
+            curr_pos = self.get_curr_pos()
+        return curr_pos
+
+    def get_nav_goals_to_position(self, goal_location, parking_dist=0.5):
+        
+        curr_pos = self.get_curr_pos_with_waiting()
+
+        curr_pos_location = np.array([curr_pos.point.x, curr_pos.point.y])
+
+        vec_to_goal_normed = goal_location - curr_pos_location
+        vec_to_goal_normed /= np.linalg.norm(vec_to_goal_normed)
+
+        face_goal_location = goal_location - parking_dist * vec_to_goal_normed
+
+        fi = np.arctan2(vec_to_goal_normed[1], vec_to_goal_normed[0])
+
+        nav_goals = [("go", (face_goal_location[0], face_goal_location[1], fi))]
+
+        return nav_goals
 
 
     # Parking:
+
+    def get_parking_navigation_goals(self, ring_location):
+
+        self.set_top_camera("park")
+        
+        navigation_goals = self.get_nav_goals_to_position(ring_location, self.ring_parking_dist)
+
+        navigation_goals.append(("park", None))
+
+        return navigation_goals
 
     def wait_by_spinning(self, spin_dist=2*3.14 * 1e-7, spin_seconds=1):
         # Keep spin seconds low so that we remain in almost the same place.
@@ -1149,6 +1238,8 @@ class RobotCommander(Node):
         self.parking_pub.publish(velocity)
 
     def park(self):
+
+        self.set_top_camera("park")
 
         # Just here to wait until we get the first image, if that hasn't happened yet.
         _, _, _ = self.get_top_img_stats_with_waiting_for_change()
@@ -1235,6 +1326,62 @@ class RobotCommander(Node):
             self.cmd_vel("forward", milliseconds)
             _, area, _ = self.get_top_img_stats_with_waiting_for_change()
 
+    
+    # QR code reading:
+
+
+    def QR_code_sequence(self, ring_location, ring_color):
+        self.curr_investigated_ring = ring_color
+        nav_goals = self.get_parking_navigation_goals(ring_location)
+        nav_goals.append(self.get_read_near_cylinder_qr_goals())
+        nav_goals.append(("spin", 3.14))
+        nav_goals.append(self.last_destination_goal)
+
+        self.prepend_to_nav_list(nav_goals, spin_full_after_go=False)
+        self.cancel_goal = True
+
+        return nav_goals
+    
+    def get_read_near_cylinder_qr_goals(self):
+        self.set_top_camera("qr")
+
+        curr_pos = self.get_curr_pos_with_waiting()
+        curr_pos_location = np.array([curr_pos.point.x, curr_pos.point.y])
+        
+        nearest_pos = None
+        for pos in self.seen_cylinders.values():
+            if nearest_pos is None:
+                nearest_pos = pos
+            elif np.linalg.norm(pos - curr_pos_location) < np.linalg.norm(nearest_pos - curr_pos_location):
+                nearest_pos = pos
+        
+        nav_goals = self.get_nav_goals_to_position(nearest_pos, self.qr_parking_dist)
+        nav_goals.append(("read_qr", None))
+
+        return nav_goals
+    
+    def read_qr(self):
+
+        self.info("Reading QR code near the cylinder.")
+
+        print("QR reading not implemented!")
+
+        poskus_uspel = False
+        dobljen_paining = None
+
+        if poskus_uspel:
+            # # Zakomentirano ze obdela set_state
+            # if self.curr_investigated_ring == self.possible_rings[0]:
+            #     del self.possible_rings[0]
+            # elif self.curr_investigated_ring == self.possible_rings[1]:
+            #     del self.possible_rings[1]
+            self.set_state(2, {"ring_list": [self.curr_investigated_ring]})
+        else:
+            self.correct_painting = dobljen_paining
+            self.set_state(3)
+        
+        self.info("QR code read.")
+        self.set_top_camera("park")
 
 
     # Speech related:
@@ -1376,6 +1523,15 @@ def main(args=None):
 
         print("\n\n")
 
+        print("rc.state:")
+        print(rc.state)
+        print("rc.possible_rings:")
+        print(rc.possible_rings)
+        print("rc.seen_cylinders:")
+        print(rc.seen_cylinders)
+        print("rc.seen_rings:")
+        print(rc.seen_rings)
+
 
 
 
@@ -1400,6 +1556,9 @@ def main(args=None):
         elif curr_type == "park":
             rc.set_top_camera("park")
             rc.park()
+
+        elif curr_type == "read_qr":
+            rc.read_qr()
 
 
         del rc.navigation_list[0]
