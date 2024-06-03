@@ -861,7 +861,7 @@ class RobotCommander(Node):
 
 
         # If less than 10 pixels are red, we assume that there is no frame.
-        if red_frame.sum() < 10:
+        if red_frame.sum() < 100:
             print("No frame found!")
             if self.state <= 1:
                 self.get_answer()
@@ -870,59 +870,57 @@ class RobotCommander(Node):
 
 
 
-        # contours, _ = cv2.findContours(red_frame, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # Initial try:
+        """
+        contours, _ = cv2.findContours(red_frame, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        # if contours:
-        #     # Find the largest contour which will correspond to the red frame
-        #     largest_contour = max(contours, key=cv2.contourArea)
-        #     x, y, w, h = cv2.boundingRect(largest_contour)
-
-
-        #     cropped_image = curr_img[y:y+h, x:x+w]
-
-
-        #     # Example: Convert to grayscale and apply a binary threshold
-        #     gray_image = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
-        #     _, thresholded_image = cv2.threshold(gray_image, 128, 255, cv2.THRESH_BINARY)
-
-        #     cv2.imshow("Tresholded img:", thresholded_image)
-        #     key = cv2.waitKey(1)
-        #     if key==27:
-        #         print("exiting")
-        #         exit()
+        if contours:
+            # Find the largest contour which will correspond to the red frame
+            largest_contour = max(contours, key=cv2.contourArea)
+            x, y, w, h = cv2.boundingRect(largest_contour)
 
 
+            cropped_image = curr_img[y:y+h, x:x+w]
 
 
+            # Example: Convert to grayscale and apply a binary threshold
+            gray_image = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
+            _, thresholded_image = cv2.threshold(gray_image, 128, 255, cv2.THRESH_BINARY)
+
+            cv2.imshow("Tresholded img:", thresholded_image)
+            key = cv2.waitKey(1)
+            if key==27:
+                print("exiting")
+                exit()"""
 
 
 
+        # Show all child contours - doesn't work:
+        """
+        image = red_frame_to_show.copy()
 
-        # # Show all child contours:
 
-        # image = red_frame_to_show.copy()
+        # Assuming `red_frame` is a binary mask of the red areas
+        contours, hierarchy = cv2.findContours(red_frame, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
-
-        # # Assuming `red_frame` is a binary mask of the red areas
-        # contours, hierarchy = cv2.findContours(red_frame, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-
-        # # Loop through the contour and hierarchy list
-        # for i in range(len(contours)):
-        #     # Check if the contour has a parent, indicating it is inside another contour
-        #     if hierarchy[0][i][3] != -1:
-        #         inner_contour = contours[i]
-        #         cv2.drawContours(image, [inner_contour], -1, (0, 255, 0), 2)
+        # Loop through the contour and hierarchy list
+        for i in range(len(contours)):
+            # Check if the contour has a parent, indicating it is inside another contour
+            if hierarchy[0][i][3] != -1:
+                inner_contour = contours[i]
+                cv2.drawContours(image, [inner_contour], -1, (0, 255, 0), 2)
         
-        # while True:
-        #     cv2.imshow("Inner contours", image)
-        #     key = cv2.waitKey(1)
-        #     if key==27:
-        #         print("exiting")
-        #         exit()
+        while True:
+            cv2.imshow("Inner contours", image)
+            key = cv2.waitKey(1)
+            if key==27:
+                print("exiting")
+                exit()"""
 
 
 
-
+        # Trying to combine the approaches:
+        """
         image = red_frame.copy()
         image[:,:] = 0
 
@@ -1017,6 +1015,70 @@ class RobotCommander(Node):
             exit()
 
 
+        """
+
+
+
+
+        image = red_frame.copy()
+        image[:,:] = 0
+
+        contours, _ = cv2.findContours(red_frame, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        if contours:
+            print("Num of new contours: ", len(contours))
+            # Find the largest contour which will correspond to the red frame
+
+            # This sometimes finds some specs.
+            # But interestingly, the frame seems to always be just one contour, so this works.
+            contour = max(contours, key=cv2.contourArea)
+
+            # Approximate the contour to a polygon
+            epsilon = 0.02 * cv2.arcLength(contour, True)
+            approx_corners = cv2.approxPolyDP(contour, epsilon, True)
+
+            # a corner is of the form [[x, y]] for some reason
+            # Returning tuple from lambda apparently has it sorted by x and then by y
+            approx_corners = sorted(approx_corners, key=lambda x: (x[0][0], x[0][1]))
+
+
+            if len(approx_corners) == 4:  # Check if the contour can be approximated to four points
+                src_points = approx_corners.reshape(4, 2).astype('float32')
+            else:
+                print("The contour cannot be approximated to four corners.")
+                return
+        else:
+            print("No contours found!" + 5*"\n")
+            return
+
+
+        print("approx_corners:")
+        print(approx_corners)
+        print("src_points:")
+        print(src_points)
+
+
+        # # Only gets corners of the bounding box
+        # x, y, w, h = cv2.boundingRect(contour)
+        # src_points = np.array([[x, y], [x+w, y], [x, y+h], [x+w, y+h]], dtype='float32')
+
+        width, height = curr_img.shape[1], curr_img.shape[0]
+        # dst_points = np.array([[0, 0], [width, 0], [0, height], [width, height]], dtype='float32')  # Destination points
+        dst_points = np.array([[0, 0], [0, height], [width, 0] [width, height]], dtype='float32')  # Destination points
+
+        # Compute the homography matrix
+        H, _ = cv2.findHomography(src_points, dst_points)
+
+
+        # paint_w, paint_h = 240, 320
+        # transformed_image = cv2.warpPerspective(curr_img, H, (curr_img.shape[1], curr_img.shape[0]))
+        transformed_image = cv2.warpPerspective(curr_img, H, (width, height))
+
+        cv2.imshow("Homography:", transformed_image)
+        key = cv2.waitKey(1)
+        if key==27:
+            print("exiting")
+            exit()
 
 
 
@@ -1067,6 +1129,15 @@ class RobotCommander(Node):
                 self.get_logger().info(f"Cound not get the transform: {te}")
 
 
+    def get_curr_pos_with_waiting(self):
+        curr_pos = self.get_curr_pos()
+        while curr_pos is None:
+            print("Waiting for point...")
+            time.sleep(0)
+            curr_pos = self.get_curr_pos()
+        return curr_pos
+
+
     def goToPose(self, pose, behavior_tree=''):
         """Send a `NavToPose` action request."""
         self.debug("Waiting for 'NavigateToPose' action server")
@@ -1092,6 +1163,27 @@ class RobotCommander(Node):
 
         self.result_future = self.goal_handle.get_result_async()
         return True
+    
+    def correct_orientation(self, goal_location, behavior_tree=''):
+        
+        # This was supposed to make things better, but it doesn't do much, and it
+        # disables you using keyboards to help the robot.
+        return
+        
+        # Simply spin towards the goal location. Meant for problems with orientation.
+        curr_pos = self.get_curr_pos_with_waiting()
+
+        curr_pos_location = np.array([curr_pos.point.x, curr_pos.point.y])
+
+        vec_to_goal_normed = goal_location - curr_pos_location
+
+        fi = np.arctan2(vec_to_goal_normed[1], vec_to_goal_normed[0])
+
+        pose = self.get_pose_obj(curr_pos_location[0],curr_pos_location[1], fi)
+
+        self.goToPose(pose)
+
+
 
 
     def cancelTask(self):
@@ -1140,6 +1232,8 @@ class RobotCommander(Node):
             self.navigation_list.append(("park", None, None))
         elif tup[0] == "read_qr":
             self.navigation_list.append((("read_qr", None, None)))
+        elif tup[0] == "correct_orientation":
+            self.navigation_list.append(("correct_orientation", tup[1], None))
 
     def add_to_nav_list(self, to_add_list, spin_full_after_go=False):
 
@@ -1162,16 +1256,22 @@ class RobotCommander(Node):
             self.navigation_list.insert(insert_pos, ("park", None, None))
         elif tup[0] == "read_qr":
             self.navigation_list.insert(insert_pos, ("read_qr", None, None))
+        elif tup[0] == "correct_orientation":
+            self.navigation_list.insert(insert_pos, ("correct_orientation", tup[1], None))
 
     def prepend_to_nav_list(self, to_add_list, spin_full_after_go=False):
         
+        # This makes thigs too complicated:
+        """
         # inserting instead of prepending if we are already going to a face.
         # To aleviate at least some of the chaos that is caused by this.
         if len(to_add_list) >=2:
             if to_add_list[1][0] == "face_or_painting":
                 
                 insert_pos = 0
-                window = [i[0] for i in self.navigation_list[:3]]
+                face_or_painting_goal_dist = 4 # this is now 4, because we added the correction of orientation goal.
+
+                window = [i[0] for i in self.navigation_list[:face_or_painting_goal_dist]]
                 if "face_or_painting" in window:
                     insert_pos = window.index("face_or_painting")
                 # If face_or_painting isn't near, add this action to the start.
@@ -1182,10 +1282,10 @@ class RobotCommander(Node):
                     return
                 
                 # Find the last face_or_painting 
-                next_insert_pos = insert_pos + 3
+                next_insert_pos = insert_pos + face_or_painting_goal_dist
                 while self.navigation_list[next_insert_pos][0] == "face_or_painting":
                     insert_pos = next_insert_pos
-                    next_insert_pos += 3
+                    next_insert_pos += face_or_painting_goal_dist
                 
                 # now we have insert_pos at last face_or_painting
                 # Add 1 to add after spin.
@@ -1197,19 +1297,11 @@ class RobotCommander(Node):
                 for tup in reversed(to_add_list):
                     self.prepend_tup_to_nav_list(tup, spin_full_after_go, insert_pos)
                 return
-
+        """
 
         for tup in reversed(to_add_list):
             self.prepend_tup_to_nav_list(tup, spin_full_after_go)
             
-
-    def get_curr_pos_with_waiting(self):
-        curr_pos = self.get_curr_pos()
-        while curr_pos is None:
-            print("Waiting for point...")
-            time.sleep(0)
-            curr_pos = self.get_curr_pos()
-        return curr_pos
 
     def get_nav_goals_to_position(self, goal_location, parking_dist=0.5):
         
@@ -1224,7 +1316,10 @@ class RobotCommander(Node):
 
         fi = np.arctan2(vec_to_goal_normed[1], vec_to_goal_normed[0])
 
-        nav_goals = [("go", (face_goal_location[0], face_goal_location[1], fi))]
+        nav_goals = [
+            ("go", (face_goal_location[0], face_goal_location[1], fi)),
+            ("correct_orientation", (goal_location[0], goal_location[1])),
+            ]
 
         return nav_goals
 
@@ -1544,6 +1639,7 @@ def main(args=None):
     ]
 
     rc.add_to_nav_list(add_to_navigation, spin_full_after_go=True)
+    rc.add_to_nav_list(add_to_navigation, spin_full_after_go=True)
 
 
 
@@ -1555,7 +1651,7 @@ def main(args=None):
         print(rc.navigation_list[0][2])
         print("Goals following it:")
 
-        desired_num_of_following_goals = 2
+        desired_num_of_following_goals = 10
         for i in range(1, desired_num_of_following_goals+1):
             if i < len(rc.navigation_list):
                 print(rc.navigation_list[i][0])
@@ -1583,8 +1679,17 @@ def main(args=None):
         curr_type, curr_goal, curr_goal_coordinates = rc.navigation_list[0]
 
         if curr_type == "go":
-
+            
+            # Attempt at making things more efficient,but it becomes more complicated.
+            # # Saving last destination, if it was part of the general course.
+            # if len(rc.navigation_list) >= 2:  
+            #     next_type = rc.navigation_list[1][0]
+            #     if next_type != "face_or_painting" and next_type != "park":
+            #         rc.last_destination_goal = (curr_type, curr_goal_coordinates)
+            
             rc.last_destination_goal = (curr_type, curr_goal_coordinates)
+
+    
             rc.goToPose(curr_goal)
 
         elif curr_type == "spin":
@@ -1603,6 +1708,8 @@ def main(args=None):
         elif curr_type == "read_qr":
             rc.read_qr()
 
+        elif curr_type == "correct_orientation":
+            rc.correct_orientation(curr_goal)
 
         del rc.navigation_list[0]
 
