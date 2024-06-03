@@ -64,6 +64,8 @@ from pydub.playback import play
 from gtts import gTTS
 from io import BytesIO
 import pygame
+import speech_recognition as sr
+import sounddevice
 
 
 
@@ -189,6 +191,9 @@ class RobotCommander(Node):
 
         # For waiting by spinning (this allows subscriptions to call callbacks, as opposed to time.sleep(0))
         self.waiting_spin_dir = 1 # vals 1 and -1
+
+        # for speech recognition
+        self.recognizer = sr.Recognizer() 
 
 
         self.get_logger().info(f"Robot commander has been initialized!")
@@ -807,28 +812,80 @@ class RobotCommander(Node):
 
         return colour_tresholded
 
-    def get_answer(self):
-        # self.say_question()
-        print("Question not said, because gtts is not working.")
-        self.handle_speech_to_text()
-        
-        
+    def handle_dialogue(self):
 
-    def handle_speech_to_text(self):
+        # pip install speechrecognition
+        # sudo apt-get install python3-pyaudio
+        # pip install pyttsx3
+        # pip install sounddevice
+
         allowed_answers = ["black", "red", "yellow", "green", "blue"]
         answers = []
-        while len(answers) < 2:
-            answer = input("Enter the color of the painting: ")
-            if answer in allowed_answers:
-                answers.append(answer)
-            else:
-                print("Invalid answer. Please try again.")
-                print("Allowed answers are: ", allowed_answers)
+
+        question = "Do you know where the info about the Mona Lisa photo can be found?"
+        self.say(question)
+        print("Robot: " + question)
+
+        dialogue = True
+
+        while dialogue:    
+     
+            # Exception handling to handle
+            # exceptions at the runtime
+            try:
+                
+                # use the microphone as source for input.
+                with sr.Microphone() as source2:
+                    
+                    # wait for a second to let the recognizer
+                    # adjust the energy threshold based on
+                    # the surrounding noise level 
+                    self.recognizer.adjust_for_ambient_noise(source2, duration=0.2)
+                    
+                    #listens for the user's input 
+                    audio2 = self.recognizer.listen(source2)
+                    
+                    # Using google to recognize audio
+                    text = self.recognizer.recognize_google(audio2)
+                    text = text.lower()
         
-        if self.state == 0:
-            self.set_state(1, {"ring_list": answers})
-        elif self.state == 1:
-            self.set_state(2, {"ring_list": answers})
+                    print("Person: " + text)
+
+                    words = text.split()
+                    
+                    for color in allowed_answers:
+                        if color in words:
+                            answers.append(color)
+                    
+                            if len(answers) >= 2:
+                                dialogue = False
+
+                    if "no" == words[0]:
+                        dialogue = False
+
+            except sr.RequestError as e:
+                print("Could not request results; {0}".format(e))
+                
+            except sr.UnknownValueError:
+                print("unknown error occurred")
+        
+        #while len(answers) < 2:
+            #answer = input("Enter the color of the painting: ")
+            #if answer in allowed_answers:
+                #answers.append(answer)
+            #else:
+                #print("Invalid answer. Please try again.")
+                #print("Allowed answers are: ", allowed_answers)
+        
+        if len(answers) == 2:
+            if self.state == 0:
+                self.set_state(1, {"ring_list": answers})
+            elif self.state == 1:
+                self.set_state(2, {"ring_list": answers})
+
+        thanks = "OK. Thank you."
+        self.say(thanks)
+        print("Robot: " + thanks)
 
 
     def face_or_painting(self):
@@ -864,7 +921,7 @@ class RobotCommander(Node):
         if red_frame.sum() < 10:
             print("No frame found!")
             if self.state <= 1:
-                self.get_answer()
+                self.handle_dialogue()
             return
         
 
@@ -1427,20 +1484,10 @@ class RobotCommander(Node):
         #v = vlc.MediaPlayer("/color.mp3")
         #v.play()
 
-
-    def say_question(self):
-
-        question = "Do you know what color the ring is?"
-        self.say(question)
-
     def say_color(self, color: str):
 
         self.info(color)
         self.say(color)
-
-
-
-
 
 
 def main(args=None):
