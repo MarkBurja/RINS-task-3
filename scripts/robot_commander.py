@@ -535,6 +535,8 @@ class RobotCommander(Node):
             sending_str = "look_for_parking"
         elif pos_str == "qr":
             sending_str = "look_for_qr"
+        else:
+            sending_str = pos_str
 
         msg = String()
         msg.data = sending_str
@@ -1074,16 +1076,17 @@ class RobotCommander(Node):
             exit()
 
 
+    def wave(self):
+        up = "manual:[0.,0.5,0.5,0.]"
+        down = "manual:[0.,0.5,2.,0.]"
 
-
-
-
-
-
-
-
-
-
+        self.set_top_camera(up)
+        time.sleep(5)
+        self.set_top_camera(down)
+        time.sleep(5)
+        self.set_top_camera(up)
+        time.sleep(5)
+        self.set_top_camera(down)
 
     # Basic navigation:
 
@@ -1197,6 +1200,8 @@ class RobotCommander(Node):
             self.navigation_list.append(("park", None, None))
         elif tup[0] == "read_qr":
             self.navigation_list.append((("read_qr", None, None)))
+        elif tup[0] == "wave":
+            self.navigation_list.append(("wave", None, None))
 
     def add_to_nav_list(self, to_add_list, spin_full_after_go=False):
 
@@ -1219,6 +1224,8 @@ class RobotCommander(Node):
             self.navigation_list.insert(insert_pos, ("park", None, None))
         elif tup[0] == "read_qr":
             self.navigation_list.insert(insert_pos, ("read_qr", None, None))
+        elif tup[0] == "wave":
+            self.navigation_list.insert(insert_pos, ("wave", None, None))
 
     def prepend_to_nav_list(self, to_add_list, spin_full_after_go=False):
         
@@ -1626,6 +1633,9 @@ def main(args=None):
 
         elif curr_type == "read_qr":
             rc.read_qr()
+
+        elif curr_type == "wave":
+            rc.wave()
 
 
         del rc.navigation_list[0]
