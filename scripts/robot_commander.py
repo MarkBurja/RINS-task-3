@@ -109,6 +109,7 @@ class RobotCommander(Node):
         self.last_destination_goal = ("go", (0.0, 0.0, 0.57))
         self.face_dist = 0.5
         self.ring_parking_dist = 0.3
+        self.qr_parking_dist = 0.3
         self.navigation_list = []
 
 
@@ -1040,6 +1041,7 @@ class RobotCommander(Node):
             # a corner is of the form [[x, y]] for some reason
             # Returning tuple from lambda apparently has it sorted by x and then by y
             approx_corners = sorted(approx_corners, key=lambda x: (x[0][0], x[0][1]))
+            approx_corners = np.array(approx_corners)
 
 
             if len(approx_corners) == 4:  # Check if the contour can be approximated to four points
@@ -1062,9 +1064,22 @@ class RobotCommander(Node):
         # x, y, w, h = cv2.boundingRect(contour)
         # src_points = np.array([[x, y], [x+w, y], [x, y+h], [x+w, y+h]], dtype='float32')
 
-        width, height = curr_img.shape[1], curr_img.shape[0]
+        # print("curr_img.shape[0]")
+        # print(curr_img.shape[0])
+
+        # width = 320# curr_img.shape[1]
+        # height = 240 #curr_img.shape[0]
+
+        # width = curr_img.shape[1]
+        # height = curr_img.shape[0]
+
+
+        width = 444
+        height = 648
+
+
         # dst_points = np.array([[0, 0], [width, 0], [0, height], [width, height]], dtype='float32')  # Destination points
-        dst_points = np.array([[0, 0], [0, height], [width, 0] [width, height]], dtype='float32')  # Destination points
+        dst_points = np.array([[0, 0], [0, height], [width, 0], [width, height]], dtype='float32')  # Destination points
 
         # Compute the homography matrix
         H, _ = cv2.findHomography(src_points, dst_points)
@@ -1074,12 +1089,19 @@ class RobotCommander(Node):
         # transformed_image = cv2.warpPerspective(curr_img, H, (curr_img.shape[1], curr_img.shape[0]))
         transformed_image = cv2.warpPerspective(curr_img, H, (width, height))
 
-        cv2.imshow("Homography:", transformed_image)
-        key = cv2.waitKey(1)
-        if key==27:
-            print("exiting")
-            exit()
+        repeat = True
+        while repeat:
 
+            for i in range(1000):
+                cv2.imshow("Homography:", transformed_image)
+                key = cv2.waitKey(1)
+                if key==27:
+                    print("exiting")
+                    exit()
+            
+            curr_str = input("Write 'done' to continue...")
+            if curr_str == "done":
+                repeat = False
 
 
 
@@ -1305,6 +1327,9 @@ class RobotCommander(Node):
 
     def get_nav_goals_to_position(self, goal_location, parking_dist=0.5):
         
+        print("goal_location:")
+        print(goal_location)
+
         curr_pos = self.get_curr_pos_with_waiting()
 
         curr_pos_location = np.array([curr_pos.point.x, curr_pos.point.y])
@@ -1344,7 +1369,7 @@ class RobotCommander(Node):
 
         self.spin(spin_dir * spin_dist, spin_seconds, print_info=False)
 
-    def cmd_vel(self, direction, miliseconds, linear_velocity=20.0):
+    def cmd_vel(self, direction, miliseconds, linear_velocity=70.0, angular_velocity=1.5):
         # Directions: "forward", "right", "left", "backward"
         # miliseconds: how long to move
 
@@ -1355,9 +1380,9 @@ class RobotCommander(Node):
         elif direction == "backward":
             velocity.linear.x = -linear_velocity
         elif direction == "left":
-            velocity.angular.z = -0.5
+            velocity.angular.z = -angular_velocity
         elif direction == "right":
-            velocity.angular.z = 0.5
+            velocity.angular.z = angular_velocity
 
 
         self.parking_pub.publish(velocity)
@@ -1421,7 +1446,7 @@ class RobotCommander(Node):
 
 
         acceptable_errors = [5, 3]
-        acceptable_areas = [5000, 1000]
+        acceptable_areas = [5000, 1500]
 
         for i in range(len(acceptable_errors)):
             self.top_camera_centre_robot_to_blob_centre(acceptable_error=acceptable_errors[i], milliseconds=100, printout=True)
@@ -1492,7 +1517,7 @@ class RobotCommander(Node):
             elif np.linalg.norm(pos - curr_pos_location) < np.linalg.norm(nearest_pos - curr_pos_location):
                 nearest_pos = pos
         
-        nav_goals = self.get_nav_goals_to_position(nearest_pos, self.ring_parking_dist)
+        nav_goals = self.get_nav_goals_to_position(nearest_pos, self.qr_parking_dist)
         nav_goals.append(("read_qr", None))
 
         return nav_goals
@@ -1614,6 +1639,8 @@ def main(args=None):
 
     add_to_navigation = [
 
+        ("spin", 3.14),
+
         ("go", (-0.65, 0., DOWN)),
 
         ("go", (1.1, -2., UP)),
@@ -1638,7 +1665,7 @@ def main(args=None):
 
     ]
 
-    rc.add_to_nav_list(add_to_navigation, spin_full_after_go=True)
+    rc.add_to_nav_list(add_to_navigation, spin_full_after_go=False)
     rc.add_to_nav_list(add_to_navigation, spin_full_after_go=True)
 
 
