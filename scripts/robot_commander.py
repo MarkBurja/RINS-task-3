@@ -660,7 +660,7 @@ class RobotCommander(Node):
 
         color = self.get_colour_str_from_hue_and_val(h, v)
 
-        self.seen_cylinders[color] = ring_location
+        self.seen_rings[color] = ring_location
 
 
         if self.possible_rings is None:
@@ -1124,43 +1124,62 @@ class RobotCommander(Node):
         self.result_future = self.goal_handle.get_result_async()
         return True
 
+    def add_tup_to_nav_list(self, tup, spin_full_after_go=False):
+
+        if tup[0] == "go":
+            self.navigation_list.append(("go", self.get_pose_obj(*tup[1]), tup[1]))
+            if spin_full_after_go:
+                self.navigation_list.append(("spin", 6.28, None))
+        elif tup[0] == "spin":
+            self.navigation_list.append(("spin", tup[1], None))
+        elif tup[0] == "face_or_painting":
+            self.navigation_list.append(("face_or_painting", None, None))
+        elif tup[0] == "say_color":
+            self.navigation_list.append(("say_color", tup[1], None))
+        elif tup[0] == "park":
+            self.navigation_list.append(("park", None, None))
+        elif tup[0] == "read_qr":
+            self.navigation_list.append((("read_qr", None, None)))
 
     def add_to_nav_list(self, to_add_list, spin_full_after_go=False):
 
         for tup in to_add_list:
-            if tup[0] == "go":
-                self.navigation_list.append(("go", self.get_pose_obj(*tup[1]), tup[1]))
-                if spin_full_after_go:
-                    self.navigation_list.append(("spin", 6.28, None))
-            elif tup[0] == "spin":
-                self.navigation_list.append(("spin", tup[1], None))
-            elif tup[0] == "face_or_painting":
-                self.navigation_list.append(("face_or_painting", None, None))
-            elif tup[0] == "say_color":
-                self.navigation_list.append(("say_color", tup[1], None))
-            elif tup[0] == "park":
-                self.navigation_list.append(("park", None, None))
-            elif tup[0] == "read_qr":
-                self.navigation_list.append((("read_qr", None, None)))
+            self.add_tup_to_nav_list(tup, spin_full_after_go)
+    
+    def prepend_tup_to_nav_list(self, tup, spin_full_after_go=False, insert_pos=0):
+
+        if tup[0] == "go":
+            self.navigation_list.insert(insert_pos, ("go", self.get_pose_obj(*tup[1]), tup[1]))
+            if spin_full_after_go:
+                self.navigation_list.insert(insert_pos, ("spin", 6.28, None))
+        elif tup[0] == "spin":
+            self.navigation_list.insert(insert_pos, ("spin", tup[1], None))
+        elif tup[0] == "face_or_painting":
+            self.navigation_list.insert(insert_pos, ("face_or_painting", None, None))
+        elif tup[0] == "say_color":
+            self.navigation_list.insert(insert_pos, ("say_color", tup[1], None))
+        elif tup[0] == "park":
+            self.navigation_list.insert(insert_pos, ("park", None, None))
+        elif tup[0] == "read_qr":
+            self.navigation_list.insert(insert_pos, ("read_qr", None, None))
 
     def prepend_to_nav_list(self, to_add_list, spin_full_after_go=False):
+        
+        # inserting instead of prepending if we are already going to a face.
+        # To aleviate at least some of the chaos that is caused by this.
+        if len(to_add_list) >=2:
+            if to_add_list[1][0] == "face_or_painting":
+                del to_add_list[3]
+                pos = 3
+                for tup in reversed(to_add_list):
+                    self.prepend_tup_to_nav_list(tup, spin_full_after_go, pos)
+                return
+
 
         for tup in reversed(to_add_list):
-            if tup[0] == "go":
-                self.navigation_list.insert(0, ("go", self.get_pose_obj(*tup[1]), tup[1]))
-                if spin_full_after_go:
-                    self.navigation_list.insert(0, ("spin", 6.28, None))
-            elif tup[0] == "spin":
-                self.navigation_list.insert(0, ("spin", tup[1], None))
-            elif tup[0] == "face_or_painting":
-                self.navigation_list.insert(0, ("face_or_painting", None, None))
-            elif tup[0] == "say_color":
-                self.navigation_list.insert(0, ("say_color", tup[1], None))
-            elif tup[0] == "park":
-                self.navigation_list.insert(0, ("park", None, None))
-            elif tup[0] == "read_qr":
-                self.navigation_list.insert(0, ("read_qr", None, None))
-                
+            self.prepend_tup_to_nav_list(tup, spin_full_after_go)
+            
+
     def get_curr_pos_with_waiting(self):
         curr_pos = self.get_curr_pos()
         while curr_pos is None:
@@ -1355,7 +1374,7 @@ class RobotCommander(Node):
             elif np.linalg.norm(pos - curr_pos_location) < np.linalg.norm(nearest_pos - curr_pos_location):
                 nearest_pos = pos
         
-        nav_goals = self.get_nav_goals_to_position(nearest_pos, self.qr_parking_dist)
+        nav_goals = self.get_nav_goals_to_position(nearest_pos, self.ring_parking_dist)
         nav_goals.append(("read_qr", None))
 
         return nav_goals
@@ -1532,6 +1551,7 @@ def main(args=None):
         print("rc.seen_rings:")
         print(rc.seen_rings)
 
+        print(4*"\n")
 
 
 
