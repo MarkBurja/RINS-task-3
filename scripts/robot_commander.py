@@ -120,7 +120,7 @@ class RobotCommander(Node):
 
         self.seen_rings = {} # {barva: position np.array}
         self.seen_cylinders = {} # {barva: position np.array}
-        self.seen_faces = [] # (position np.array;    slika ob pozdravljanju if isPainting else None).
+        self.seen_faces = [] # [position np.array;    slika ob pozdravljanju if isPainting else None].
 
 
 
@@ -581,6 +581,19 @@ class RobotCommander(Node):
             for ix, paint in self.seen_faces:
                 if not paint is None:
                     painting_ixs.append(ix)
+            
+            for ix in painting_ixs:
+                curr_painting = self.seen_faces[ix][1]
+                
+                # run anomaly detection
+                # isCorrect, anomaly_img = self.anomaly_detection(curr_painting)
+
+                cv2.imshow("Painting", curr_painting)
+                key = cv2.waitKey(1)
+                if key==27:
+                    print("exiting")
+                    exit()
+
 
             # show anomalies for existing paintings
             
@@ -629,7 +642,7 @@ class RobotCommander(Node):
 
         face_location = np.array([msg.pose.position.x, msg.pose.position.y])
 
-        self.seen_faces.append((face_location, None))
+        self.seen_faces.append([face_location, None])
 
         
         add_to_navigation = self.get_nav_goals_to_position(face_location, self.face_dist, double_goal=True)
@@ -880,22 +893,22 @@ class RobotCommander(Node):
         self.save_front_camera_img = False
         self.front_image_has_changed = False
 
-        cv2.imshow("Front camera image", curr_img)
-        key = cv2.waitKey(1)
-        if key==27:
-            print("exiting")
-            exit()
+        # cv2.imshow("Front camera image", curr_img)
+        # key = cv2.waitKey(1)
+        # if key==27:
+            # print("exiting")
+            # exit()
         
         red_frame = self.get_red_pixels_thresholded(curr_img)
 
         red_frame_to_show = curr_img.copy()
         for i in range(3):
             red_frame_to_show[:,:,i] = red_frame_to_show[:,:,i] * red_frame
-        cv2.imshow("Red frame", red_frame_to_show)
-        key = cv2.waitKey(1)
-        if key==27:
-            print("exiting")
-            exit()
+        # cv2.imshow("Red frame", red_frame_to_show)
+        # key = cv2.waitKey(1)
+        # if key==27:
+        #     print("exiting")
+        #     exit()
 
 
         # If less than 10 pixels are red, we assume that there is no frame.
@@ -1131,6 +1144,8 @@ class RobotCommander(Node):
         # paint_w, paint_h = 240, 320
         # transformed_image = cv2.warpPerspective(curr_img, H, (curr_img.shape[1], curr_img.shape[0]))
         transformed_image = cv2.warpPerspective(curr_img, H, (width, height))
+
+        self.seen_faces[-1][1] = transformed_image
 
         repeat = True
         while repeat:
