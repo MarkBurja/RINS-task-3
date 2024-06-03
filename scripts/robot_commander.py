@@ -64,8 +64,8 @@ from pydub.playback import play
 from gtts import gTTS
 from io import BytesIO
 import pygame
-
-
+import speech_recognition as sr
+import sounddevice
 
 class TaskResult(Enum):
     UNKNOWN = 0
@@ -73,26 +73,18 @@ class TaskResult(Enum):
     CANCELED = 2
     FAILED = 3
 
-
 amcl_pose_qos = QoSProfile(
           durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
           reliability=QoSReliabilityPolicy.RELIABLE,
           history=QoSHistoryPolicy.KEEP_LAST,
           depth=1)
 
-
 qos_profile = amcl_pose_qos
-
-
-
-
-
 
 class RobotCommander(Node):
 
     def __init__(self, node_name='robot_commander', namespace=''):
         super().__init__(node_name=node_name, namespace=namespace)
-
 
         self.pose_frame_id = 'map'
 
@@ -112,8 +104,6 @@ class RobotCommander(Node):
         self.qr_parking_dist = 0.3
         self.navigation_list = []
 
-
-
         self.possible_rings = None
         self.curr_investigated_ring = None
         self.correct_painting = None
@@ -122,15 +112,12 @@ class RobotCommander(Node):
         self.seen_cylinders = {} # {barva: position np.array}
         self.seen_faces = [] # [position np.array;    slika ob pozdravljanju if isPainting else None].
 
-
-
         self.map_np = None
         self.map_data = {"map_load_time":None,
                          "resolution":None,
                          "width":None,
                          "height":None,
                          "origin":None} # origin will be in the format [x,y,theta]
-
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
@@ -155,7 +142,6 @@ class RobotCommander(Node):
                                                               self._amclPoseCallback,
                                                               amcl_pose_qos)
 
-
         self.face_sub = self.create_subscription(Marker, "/detected_faces", self.face_detected_callback, QoSReliabilityPolicy.BEST_EFFORT)
         self.cylinder_sub = self.create_subscription(Marker, "/detected_cylinder", self.cylinder_detected_callback, QoSReliabilityPolicy.BEST_EFFORT)
         self.ring_sub = self.create_subscription(Marker, "/detected_rings", self.ring_detected_callback, QoSReliabilityPolicy.BEST_EFFORT)
@@ -170,8 +156,6 @@ class RobotCommander(Node):
         self.save_front_camera_img = False
         self.front_image_has_changed = False
 
-
-
         # ROS2 publishers
         self.initial_pose_pub = self.create_publisher(PoseWithCovarianceStamped,
                                                       'initialpose',
@@ -183,7 +167,6 @@ class RobotCommander(Node):
         self.undock_action_client = ActionClient(self, Undock, 'undock')
         self.dock_action_client = ActionClient(self, Dock, 'dock')
 
-
         # for parking
         self.arm_pub = self.create_publisher(String, "/arm_command", QoSReliabilityPolicy.BEST_EFFORT)
         self.parking_pub = self.create_publisher(Twist, "cmd_vel", QoSReliabilityPolicy.BEST_EFFORT)
@@ -191,16 +174,14 @@ class RobotCommander(Node):
         # For waiting by spinning (this allows subscriptions to call callbacks, as opposed to time.sleep(0))
         self.waiting_spin_dir = 1 # vals 1 and -1
 
+        # for speech recognition
+        self.recognizer = sr.Recognizer() 
 
         self.get_logger().info(f"Robot commander has been initialized!")
 
     def destroyNode(self):
         self.nav_to_pose_client.destroy()
         super().destroy_node()
-
-
-
-
 
     def info(self, msg):
         self.get_logger().info(msg)
@@ -218,7 +199,6 @@ class RobotCommander(Node):
         self.get_logger().debug(msg)
         return
 
-
     def get_pose_obj(self, x, y, fi):
 
         goal_pose = PoseStamped()
@@ -230,8 +210,6 @@ class RobotCommander(Node):
         goal_pose.pose.orientation = self.YawToQuaternion(fi)
 
         return goal_pose
-
-
 
     # Transformation functions:
 
@@ -261,9 +239,7 @@ class RobotCommander(Node):
         # Apply rotation
         return x, y
 
-
     # General RC stuff:
-
 
     def undock(self):
         """Perform Undock action."""
@@ -404,26 +380,7 @@ class RobotCommander(Node):
         self.initial_pose_pub.publish(msg)
         return
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     # Our code:
-
 
     # Somewhat general functions:
 
@@ -462,7 +419,6 @@ class RobotCommander(Node):
         h = h * 360
 
         return h, s, v
-
 
     def create_marker(self, point_stamped, marker_id):
         """You can see the description of the Marker message here: https://docs.ros2.org/galactic/api/visualization_msgs/msg/Marker.html"""
@@ -516,11 +472,7 @@ class RobotCommander(Node):
         
         return color
 
-
-
     # Various permanent setters:
-
-
 
     def set_top_camera(self, pos_str="normal"):
 
@@ -531,6 +483,8 @@ class RobotCommander(Node):
             sending_str = "look_for_parking"
         elif pos_str == "qr":
             sending_str = "look_for_qr"
+        else:
+            sending_str = pos_str
 
         msg = String()
         msg.data = sending_str
@@ -594,19 +548,15 @@ class RobotCommander(Node):
                     print("exiting")
                     exit()
 
-
             # show anomalies for existing paintings
             
-
         elif state == 4:
             self.state = 4
         elif state == 5:
             self.state = 5
 
 
-
     # Callbacks and their supporting functions:
-
 
     def map_callback(self, msg):
             self.get_logger().info(f"Read a new Map (Occupancy grid) from the topic.")
@@ -630,8 +580,6 @@ class RobotCommander(Node):
                                     msg.info.origin.position.y,
                                     tf_transformations.euler_from_quaternion(quat_list)[-1]]
             #self.get_logger().info(f"Read a new Map (Occupancy grid) from the topic.")
-
-
 
     def face_detected_callback(self, msg):
 
@@ -657,7 +605,6 @@ class RobotCommander(Node):
 
         self.cancel_goal = True
         # self.cancelTask()
-
 
     def ring_detected_callback(self, msg):
 
@@ -686,8 +633,6 @@ class RobotCommander(Node):
         if color in self.possible_rings:
             self.QR_code_sequence(ring_location, color)
 
-
-
     def cylinder_detected_callback(self, msg):
 
         self.info("Cylinder detected!")
@@ -701,8 +646,6 @@ class RobotCommander(Node):
         color = self.get_colour_str_from_hue_and_val(h, v)
 
         self.seen_cylinders[color] = np.array([msg.pose.position.x, msg.pose.position.y])
-
-
 
     def top_img_stats_callback(self, msg):
 
@@ -718,12 +661,10 @@ class RobotCommander(Node):
         self.latest_top_img_stats = (centroid, area, shape)
         self.top_img_changed = True
 
-
     def get_latest_top_img_stats(self):
         top_img_has_changed = self.top_img_changed
         self.top_img_changed = False
         return self.latest_top_img_stats[0], self.latest_top_img_stats[1], self.latest_top_img_stats[2], top_img_has_changed
-
 
     def get_top_img_stats_with_waiting_for_change(self):
 
@@ -742,10 +683,7 @@ class RobotCommander(Node):
             self.wait_by_spinning()
             centroid, area, shape, top_img_has_changed = self.get_latest_top_img_stats()
 
-
-
         return centroid, area, shape
-
 
     def front_camera_img_saver(self, data):
 
@@ -763,15 +701,11 @@ class RobotCommander(Node):
             except CvBridgeError as e:
                 print(e)
 
-
     # Questioning and paintings:
-
 
     def get_red_pixels_thresholded(self, img):
 
-
         hsv_img = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-
 
         # hue_img = hsv_img[:,:,0]
 
@@ -781,9 +715,6 @@ class RobotCommander(Node):
         # hue_high_treshold = 70
         # hue_high_img =  hue_img < hue_high_treshold
 
-
-
-
         red_img = img[:,:,2]
 
         red_low_treshold = 30
@@ -792,20 +723,15 @@ class RobotCommander(Node):
         # red_high_treshold = 70
         # red_high_img = red_img < red_high_treshold
 
-
-
         green_img = img[:,:,1]
 
         green_high_treshold = 7
         green_img = green_img < green_high_treshold
 
-
         blue_img = img[:,:,0]
 
         blue_high_treshold = 7
         blue_img = blue_img < blue_high_treshold
-
-
 
         # val_img = hsv_img[:,:,2]
         
@@ -823,29 +749,6 @@ class RobotCommander(Node):
         colour_tresholded = colour_tresholded.astype(np.uint8)
 
         return colour_tresholded
-
-    def get_answer(self):
-        # self.say_question()
-        print("Question not said, because gtts is not working.")
-        self.handle_speech_to_text()
-        
-        
-
-    def handle_speech_to_text(self):
-        allowed_answers = ["black", "red", "yellow", "green", "blue"]
-        answers = []
-        while len(answers) < 2:
-            answer = input("Enter the color of the painting: ")
-            if answer in allowed_answers:
-                answers.append(answer)
-            else:
-                print("Invalid answer. Please try again.")
-                print("Allowed answers are: ", allowed_answers)
-        
-        if self.state == 0:
-            self.set_state(1, {"ring_list": answers})
-        elif self.state == 1:
-            self.set_state(2, {"ring_list": answers})
 
     def sort_corners(self, corners):
         
@@ -875,13 +778,10 @@ class RobotCommander(Node):
         print("farthest_corner")
         print(farthest_corner)
 
-
         # corners = sorted(corners, key=lambda x: (x[0][0], x[0][1]))
 
         return corners
     
-
-
     def face_or_painting(self):
 
         self.save_front_camera_img = True
@@ -910,17 +810,13 @@ class RobotCommander(Node):
         #     print("exiting")
         #     exit()
 
-
         # If less than 10 pixels are red, we assume that there is no frame.
         if red_frame.sum() < 100:
             print("No frame found!")
             if self.state <= 1:
-                self.get_answer()
+                self.handle_dialogue()
             return
         
-
-
-
         # Initial try:
         """
         contours, _ = cv2.findContours(red_frame, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -930,9 +826,7 @@ class RobotCommander(Node):
             largest_contour = max(contours, key=cv2.contourArea)
             x, y, w, h = cv2.boundingRect(largest_contour)
 
-
             cropped_image = curr_img[y:y+h, x:x+w]
-
 
             # Example: Convert to grayscale and apply a binary threshold
             gray_image = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
@@ -944,12 +838,9 @@ class RobotCommander(Node):
                 print("exiting")
                 exit()"""
 
-
-
         # Show all child contours - doesn't work:
         """
         image = red_frame_to_show.copy()
-
 
         # Assuming `red_frame` is a binary mask of the red areas
         contours, hierarchy = cv2.findContours(red_frame, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
@@ -967,8 +858,6 @@ class RobotCommander(Node):
             if key==27:
                 print("exiting")
                 exit()"""
-
-
 
         # Trying to combine the approaches:
         """
@@ -1004,7 +893,6 @@ class RobotCommander(Node):
                 print("exiting")
                 exit()
 
-
         else:
 
             hierarchy = hierarchy[0]  # Get the first item in hierarchy structure
@@ -1034,16 +922,13 @@ class RobotCommander(Node):
                 cv2.drawContours(image, [contour], -1, (0, 255, 0), 2)
             
             contour = innermost_contours[0]
-
-            
+      
             while True:
                 cv2.imshow("Inner contours", image)
                 key = cv2.waitKey(1)
                 if key==27:
                     print("exiting")
                     exit()
-
-
 
         x, y, w, h = cv2.boundingRect(contour)
 
@@ -1065,12 +950,8 @@ class RobotCommander(Node):
             print("exiting")
             exit()
 
-
         """
-
-
-
-
+        
         image = red_frame.copy()
         image[:,:] = 0
 
@@ -1097,9 +978,6 @@ class RobotCommander(Node):
             print("approx_corners:")
             print(approx_corners)
 
-
-
-
             if len(approx_corners) == 4:  # Check if the contour can be approximated to four points
                 src_points = approx_corners.reshape(4, 2).astype('float32')
             else:
@@ -1109,12 +987,10 @@ class RobotCommander(Node):
             print("No contours found!" + 5*"\n")
             return
 
-
         print("approx_corners:")
         print(approx_corners)
         print("src_points:")
         print(src_points)
-
 
         # # Only gets corners of the bounding box
         # x, y, w, h = cv2.boundingRect(contour)
@@ -1129,17 +1005,14 @@ class RobotCommander(Node):
         # width = curr_img.shape[1]
         # height = curr_img.shape[0]
 
-
         width = 444
         height = 648
-
 
         # dst_points = np.array([[0, 0], [width, 0], [0, height], [width, height]], dtype='float32')  # Destination points
         dst_points = np.array([[0, 0], [0, height], [width, 0], [width, height]], dtype='float32')  # Destination points
 
         # Compute the homography matrix
         H, _ = cv2.findHomography(src_points, dst_points)
-
 
         # paint_w, paint_h = 240, 320
         # transformed_image = cv2.warpPerspective(curr_img, H, (curr_img.shape[1], curr_img.shape[0]))
@@ -1149,7 +1022,6 @@ class RobotCommander(Node):
 
         repeat = True
         while repeat:
-
             for i in range(1000):
                 cv2.imshow("Homography:", transformed_image)
                 key = cv2.waitKey(1)
@@ -1161,17 +1033,19 @@ class RobotCommander(Node):
             if curr_str == "done":
                 repeat = False
 
+    def wave(self):
+        up = "manual:[0.,0.5,0.5,0.]"
+        down = "manual:[0.,0.5,2.,0.]"
 
-
-
-
-
-
-
-
+        self.set_top_camera(up)
+        time.sleep(5)
+        self.set_top_camera(down)
+        time.sleep(5)
+        self.set_top_camera(up)
+        time.sleep(5)
+        self.set_top_camera(down)
 
     # Basic navigation:
-
 
     def get_curr_pos(self):
             # Create a PointStamped in the /base_link frame of the robot
@@ -1188,7 +1062,6 @@ class RobotCommander(Node):
             # Now we look up the transform between the base_link and the map frames
             # and then we apply it to our PointStamped
 
-
             time_now = rclpy.time.Time()
             timeout =rclpyDuration(seconds=0.1)
             try:
@@ -1204,7 +1077,6 @@ class RobotCommander(Node):
 
                 return point_in_map_frame
 
-
             except TransformException as te:
                 self.get_logger().info(f"Cound not get the transform: {te}")
 
@@ -1216,7 +1088,6 @@ class RobotCommander(Node):
             time.sleep(0)
             curr_pos = self.get_curr_pos()
         return curr_pos
-
 
     def goToPose(self, pose, behavior_tree=''):
         """Send a `NavToPose` action request."""
@@ -1263,9 +1134,6 @@ class RobotCommander(Node):
 
         self.goToPose(pose)
 
-
-
-
     def cancelTask(self):
         """Cancel pending task request of any type."""
         self.info('Canceling current task.')
@@ -1273,7 +1141,6 @@ class RobotCommander(Node):
             future = self.goal_handle.cancel_goal_async()
             rclpy.spin_until_future_complete(self, future)
         return
-
 
     def spin(self, spin_dist=1.57, time_allowance=10, print_info=True):
         self.debug("Waiting for 'Spin' action server")
@@ -1312,6 +1179,8 @@ class RobotCommander(Node):
             self.navigation_list.append(("park", None, None))
         elif tup[0] == "read_qr":
             self.navigation_list.append((("read_qr", None, None)))
+        elif tup[0] == "wave":
+            self.navigation_list.append(("wave", None, None))
         elif tup[0] == "correct_orientation":
             self.navigation_list.append(("correct_orientation", tup[1], None))
         else:
@@ -1340,6 +1209,8 @@ class RobotCommander(Node):
             self.navigation_list.insert(insert_pos, ("park", None, None))
         elif tup[0] == "read_qr":
             self.navigation_list.insert(insert_pos, ("read_qr", None, None))
+        elif tup[0] == "wave":
+            self.navigation_list.insert(insert_pos, ("wave", None, None))
         elif tup[0] == "correct_orientation":
             self.navigation_list.insert(insert_pos, ("correct_orientation", tup[1], None))
         else:
@@ -1418,7 +1289,6 @@ class RobotCommander(Node):
 
         return nav_goals
 
-
     # Parking:
 
     def get_parking_navigation_goals(self, ring_location, ring_color):
@@ -1460,9 +1330,7 @@ class RobotCommander(Node):
         elif direction == "right":
             velocity.angular.z = angular_velocity
 
-
         self.parking_pub.publish(velocity)
-
 
         # I think the velocity persists if you don't reset it.
 
@@ -1509,7 +1377,6 @@ class RobotCommander(Node):
             angles.append(fi)
             areas_at_angles.append(area)
 
-
         max_area_ix = areas_at_angles.index(max(areas_at_angles))
         chosen_fi = angles[max_area_ix]
 
@@ -1519,16 +1386,12 @@ class RobotCommander(Node):
         while not self.isTaskComplete():
             time.sleep(0)
 
-
-
         acceptable_errors = [5, 3]
         acceptable_areas = [5000, 1500]
 
         for i in range(len(acceptable_errors)):
             self.top_camera_centre_robot_to_blob_centre(acceptable_error=acceptable_errors[i], milliseconds=100, printout=True)
             self.top_camera_reduce_blob_area(acceptable_area=acceptable_areas[i], milliseconds=100, printout=True)
-
-
 
         print("Parking complete!")
 
@@ -1564,9 +1427,7 @@ class RobotCommander(Node):
             self.cmd_vel("forward", milliseconds)
             _, area, _ = self.get_top_img_stats_with_waiting_for_change()
 
-    
     # QR code reading:
-
 
     def QR_code_sequence(self, ring_location, ring_color):
         self.curr_investigated_ring = ring_color
@@ -1621,7 +1482,6 @@ class RobotCommander(Node):
         self.info("QR code read.")
         self.set_top_camera("park")
 
-
     # Speech related:
 
     def say(self, what_to_say):
@@ -1646,21 +1506,85 @@ class RobotCommander(Node):
         #v = vlc.MediaPlayer("/color.mp3")
         #v.play()
 
-
-    def say_question(self):
-
-        question = "Do you know what color the ring is?"
-        self.say(question)
-
     def say_color(self, color: str):
 
         self.info(color)
         self.say(color)
+        
+    def handle_dialogue(self):
 
+        # pip install speechrecognition
+        # sudo apt-get install python3-pyaudio
+        # pip install pyttsx3
+        # pip install sounddevice
 
+        allowed_answers = ["black", "red", "yellow", "green", "blue"]
+        answers = []
 
+        question = "Do you know where the info about the Mona Lisa photo can be found?"
+        self.say(question)
+        print("Robot: " + question)
 
+        dialogue = True
 
+        while dialogue:    
+     
+            # Exception handling to handle
+            # exceptions at the runtime
+            try:
+                
+                # use the microphone as source for input.
+                with sr.Microphone() as source2:
+                    
+                    # wait for a second to let the recognizer
+                    # adjust the energy threshold based on
+                    # the surrounding noise level 
+                    self.recognizer.adjust_for_ambient_noise(source2, duration=0.2)
+                    
+                    #listens for the user's input 
+                    audio2 = self.recognizer.listen(source2)
+                    
+                    # Using google to recognize audio
+                    text = self.recognizer.recognize_google(audio2)
+                    text = text.lower()
+        
+                    print("Person: " + text)
+
+                    words = text.split()
+                    
+                    for color in allowed_answers:
+                        if color in words:
+                            answers.append(color)
+                    
+                            if len(answers) >= 2:
+                                dialogue = False
+
+                    if "no" == words[0]:
+                        dialogue = False
+
+            except sr.RequestError as e:
+                print("Could not request results; {0}".format(e))
+                
+            except sr.UnknownValueError:
+                print("unknown error occurred")
+        
+        #while len(answers) < 2:
+            #answer = input("Enter the color of the painting: ")
+            #if answer in allowed_answers:
+                #answers.append(answer)
+            #else:
+                #print("Invalid answer. Please try again.")
+                #print("Allowed answers are: ", allowed_answers)
+        
+        if len(answers) == 2:
+            if self.state == 0:
+                self.set_state(1, {"ring_list": answers})
+            elif self.state == 1:
+                self.set_state(2, {"ring_list": answers})
+
+        thanks = "OK. Thank you."
+        self.say(thanks)
+        print("Robot: " + thanks)
 
 def main(args=None):
 
@@ -1682,26 +1606,14 @@ def main(args=None):
     if rc.is_docked:
         rc.undock()
 
-
-
-
-
-
-
-
-
-
-
     # The mesh in rviz is coordinates.
     # The docking station is 0,0
     # Use Publish Point to hover and see the coordinates.
     # x: -2 to 4
     # y: -2.5 to 5
 
-
     # contains tuples of three types:
     # ("go", <PoseStamped object>), ("spin", angle_to_spin_by), ("face_or_painting", None)
-
 
     # UP = 0.0
     # RIGHT = 1.57
@@ -1744,11 +1656,8 @@ def main(args=None):
     rc.add_to_nav_list(add_to_navigation, spin_full_after_go=False)
     rc.add_to_nav_list(add_to_navigation, spin_full_after_go=True)
 
-
-
     while len(rc.navigation_list) > 0:
-
-
+      
         print("\n\n")
         print(rc.navigation_list[0][0])
         print(rc.navigation_list[0][2])
@@ -1775,10 +1684,6 @@ def main(args=None):
 
         print(4*"\n")
 
-
-
-
-
         curr_type, curr_goal, curr_goal_coordinates = rc.navigation_list[0]
 
         if curr_type == "go":
@@ -1792,7 +1697,6 @@ def main(args=None):
             
             rc.last_destination_goal = (curr_type, curr_goal_coordinates)
 
-    
             rc.goToPose(curr_goal)
 
         elif curr_type == "spin":
@@ -1811,12 +1715,13 @@ def main(args=None):
         elif curr_type == "read_qr":
             rc.read_qr()
 
+        elif curr_type == "wave":
+            rc.wave()
+
         elif curr_type == "correct_orientation":
             rc.correct_orientation(curr_goal)
 
         del rc.navigation_list[0]
-
-
 
         printout_counter = 0
         while not rc.isTaskComplete():
@@ -1833,14 +1738,9 @@ def main(args=None):
 
             time.sleep(1)
 
-
-
-
         # input("Enter sth to continue.")
 
-
     input("Navigation list completed, waiting to terminate. Enter anything.")
-
 
     """# Example
     if False:
@@ -1860,7 +1760,6 @@ def main(args=None):
             time.sleep(1)
 
         rc.spin(-0.57)"""
-
 
     rc.destroyNode()
 
