@@ -1169,10 +1169,33 @@ class RobotCommander(Node):
         # To aleviate at least some of the chaos that is caused by this.
         if len(to_add_list) >=2:
             if to_add_list[1][0] == "face_or_painting":
+                
+                insert_pos = 0
+                window = [i[0] for i in self.navigation_list[:3]]
+                if "face_or_painting" in window:
+                    insert_pos = window.index("face_or_painting")
+                # If face_or_painting isn't near, add this action to the start.
+                else:
+                    insert_pos = 0
+                    for tup in reversed(to_add_list):
+                        self.prepend_tup_to_nav_list(tup, spin_full_after_go, insert_pos)
+                    return
+                
+                # Find the last face_or_painting 
+                next_insert_pos = insert_pos + 3
+                while self.navigation_list[next_insert_pos][0] == "face_or_painting":
+                    insert_pos = next_insert_pos
+                    next_insert_pos += 3
+                
+                # now we have insert_pos at last face_or_painting
+                # Add 1 to add after spin.
+                insert_pos += 1
+                
+                # This is the self.last_destination_goal. 
+                # We don't want it, because it is already given by the previous face_or_painting.
                 del to_add_list[3]
-                pos = 3
                 for tup in reversed(to_add_list):
-                    self.prepend_tup_to_nav_list(tup, spin_full_after_go, pos)
+                    self.prepend_tup_to_nav_list(tup, spin_full_after_go, insert_pos)
                 return
 
 
