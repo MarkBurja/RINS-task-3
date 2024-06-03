@@ -543,10 +543,12 @@ class RobotCommander(Node):
             self.possible_rings = params_dict["ring_list"]
 
             if self.possible_rings[0] in self.seen_rings.keys():
-                ring_loc, ring_col = self.seen_rings[self.possible_rings[0]]
+                ring_loc = self.seen_rings[self.possible_rings[0]]
+                ring_col = self.possible_rings[0]
                 self.QR_code_sequence(ring_loc, ring_col)
             elif self.possible_rings[1] in self.seen_rings.keys():
-                ring_loc, ring_col = self.seen_rings[self.possible_rings[1]]
+                ring_loc = self.seen_rings[self.possible_rings[1]]
+                ring_col = self.possible_rings[1]
                 self.QR_code_sequence(ring_loc, ring_col)
             
             print("self.possible_rings:")
@@ -565,7 +567,8 @@ class RobotCommander(Node):
                 self.possible_rings = list(set(self.possible_rings) - set(new_ring_list))
 
             if self.possible_rings[0] in self.seen_rings.keys():
-                ring_loc, ring_col = self.seen_rings[self.possible_rings[0]]
+                ring_loc = self.seen_rings[self.possible_rings[0]]
+                ring_col = self.possible_rings[0]
                 self.QR_code_sequence(ring_loc, ring_col)
             
             print("self.possible_rings:")
@@ -629,8 +632,8 @@ class RobotCommander(Node):
         self.seen_faces.append((face_location, None))
 
         
-        add_to_navigation = self.get_nav_goals_to_position(face_location, self.face_dist)
-        
+        add_to_navigation = self.get_nav_goals_to_position(face_location, self.face_dist, double_goal=True)
+
         add_to_navigation.extend([
             ("face_or_painting", 0),
             ("spin", 3.14),
@@ -830,6 +833,40 @@ class RobotCommander(Node):
             self.set_state(1, {"ring_list": answers})
         elif self.state == 1:
             self.set_state(2, {"ring_list": answers})
+
+    def sort_corners(self, corners):
+        
+        corners = [np.array(corners[0][0]), np.array(corners[1][0]), np.array(corners[2][0]), np.array(corners[3][0])]
+
+        print("corners:")
+        print(corners)
+
+        corner_dists_from_origin = [np.linalg.norm(c) for c in corners]
+        sorted_ixs = np.argsort(corner_dists_from_origin)
+
+        closest_corner = corners[sorted_ixs[0]]
+        farthest_corner = corners[sorted_ixs[3]]
+        
+        remaining_corners = [corners[i] for i in sorted_ixs[1:3]]
+        remaining_corners = sorted(remaining_corners, key=lambda x: (x[0], x[1]))
+
+        corners = [closest_corner] + remaining_corners + [farthest_corner]
+        corners = np.array(corners)
+
+        print("corners")
+        print(corners)
+        print("closest_corner")
+        print(closest_corner)
+        print("remaining_corners")
+        print(remaining_corners)
+        print("farthest_corner")
+        print(farthest_corner)
+
+
+        # corners = sorted(corners, key=lambda x: (x[0][0], x[0][1]))
+
+        return corners
+    
 
 
     def face_or_painting(self):
@@ -1040,8 +1077,14 @@ class RobotCommander(Node):
 
             # a corner is of the form [[x, y]] for some reason
             # Returning tuple from lambda apparently has it sorted by x and then by y
-            approx_corners = sorted(approx_corners, key=lambda x: (x[0][0], x[0][1]))
-            approx_corners = np.array(approx_corners)
+            # approx_corners = sorted(approx_corners, key=lambda x: (x[0][0], x[0][1]))
+            # approx_corners = np.array(approx_corners)
+
+            approx_corners = self.sort_corners(approx_corners)
+            print("approx_corners:")
+            print(approx_corners)
+
+
 
 
             if len(approx_corners) == 4:  # Check if the contour can be approximated to four points
@@ -1256,7 +1299,11 @@ class RobotCommander(Node):
             self.navigation_list.append((("read_qr", None, None)))
         elif tup[0] == "correct_orientation":
             self.navigation_list.append(("correct_orientation", tup[1], None))
-
+        else:
+            print("UNKNOWN ACTION!" + 5*"!!!\n")
+            print("tup[0]:")
+            print(tup[0])
+    
     def add_to_nav_list(self, to_add_list, spin_full_after_go=False):
 
         for tup in to_add_list:
@@ -1280,6 +1327,10 @@ class RobotCommander(Node):
             self.navigation_list.insert(insert_pos, ("read_qr", None, None))
         elif tup[0] == "correct_orientation":
             self.navigation_list.insert(insert_pos, ("correct_orientation", tup[1], None))
+        else:
+            print("UNKNOWN ACTION!" + 5*"!!!\n")
+            print("tup[0]:")
+            print(tup[0])
 
     def prepend_to_nav_list(self, to_add_list, spin_full_after_go=False):
         
@@ -1325,7 +1376,7 @@ class RobotCommander(Node):
             self.prepend_tup_to_nav_list(tup, spin_full_after_go)
             
 
-    def get_nav_goals_to_position(self, goal_location, parking_dist=0.5):
+    def get_nav_goals_to_position(self, goal_location, parking_dist=0.5, double_goal=False):
         
         print("goal_location:")
         print(goal_location)
@@ -1341,21 +1392,31 @@ class RobotCommander(Node):
 
         fi = np.arctan2(vec_to_goal_normed[1], vec_to_goal_normed[0])
 
-        nav_goals = [
-            ("go", (face_goal_location[0], face_goal_location[1], fi)),
-            ("correct_orientation", (goal_location[0], goal_location[1])),
-            ]
+        nav_goals = [("go", (face_goal_location[0], face_goal_location[1], fi))]
+
+        if double_goal:
+            # this is doubled to prevent self-canceling. And it's idempotent anyway so who cares.
+            # We had problems when detecting the first face, so I'm adding the doubling.
+            nav_goals.append(("go", (face_goal_location[0], face_goal_location[1], fi)))
+        
+        nav_goals.append(("correct_orientation", (goal_location[0], goal_location[1])))
 
         return nav_goals
 
 
     # Parking:
 
-    def get_parking_navigation_goals(self, ring_location):
+    def get_parking_navigation_goals(self, ring_location, ring_color):
 
         self.set_top_camera("park")
+
+        distance = self.ring_parking_dist
+        # Trying to solve the problem of seeing the red ring from the other side of the cube
+        # and so having the goal destination be on the wrong side, or even inside the cube.
+        if ring_color == "red":
+            distance = 0.02
         
-        navigation_goals = self.get_nav_goals_to_position(ring_location, self.ring_parking_dist)
+        navigation_goals = self.get_nav_goals_to_position(ring_location, distance)
 
         navigation_goals.append(("park", None))
 
@@ -1369,7 +1430,7 @@ class RobotCommander(Node):
 
         self.spin(spin_dir * spin_dist, spin_seconds, print_info=False)
 
-    def cmd_vel(self, direction, miliseconds, linear_velocity=70.0, angular_velocity=1.5):
+    def cmd_vel(self, direction, miliseconds, linear_velocity=40.0, angular_velocity=1.2):
         # Directions: "forward", "right", "left", "backward"
         # miliseconds: how long to move
 
@@ -1494,8 +1555,8 @@ class RobotCommander(Node):
 
     def QR_code_sequence(self, ring_location, ring_color):
         self.curr_investigated_ring = ring_color
-        nav_goals = self.get_parking_navigation_goals(ring_location)
-        nav_goals.append(self.get_read_near_cylinder_qr_goals())
+        nav_goals = self.get_parking_navigation_goals(ring_location, ring_color)
+        nav_goals.extend(self.get_read_near_cylinder_qr_goals())
         nav_goals.append(("spin", 3.14))
         nav_goals.append(self.last_destination_goal)
 
