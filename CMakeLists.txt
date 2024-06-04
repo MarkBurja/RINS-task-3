@@ -77,6 +77,7 @@ install(PROGRAMS
   scripts/robot_commander.py
   scripts/image_gatherer.py
   scripts/transform_point.py
+  scripts/detect_qr.py
   DESTINATION lib/${PROJECT_NAME})
 
 ament_package()

@@ -482,7 +482,7 @@ class RobotCommander(Node):
         elif pos_str == "park":
             sending_str = "look_for_parking"
         elif pos_str == "qr":
-            sending_str = "look_for_qr"
+            sending_str = "manual:[0.,0.,0.7,2.]"
         else:
             sending_str = pos_str
 
@@ -1466,7 +1466,7 @@ class RobotCommander(Node):
         print("QR reading not implemented!")
 
         poskus_uspel = False
-        dobljen_paining = None
+        dobljen_painting = None
 
         if poskus_uspel:
             # # Zakomentirano ze obdela set_state
@@ -1476,7 +1476,7 @@ class RobotCommander(Node):
             #     del self.possible_rings[1]
             self.set_state(2, {"ring_list": [self.curr_investigated_ring]})
         else:
-            self.correct_painting = dobljen_paining
+            self.correct_painting = dobljen_painting
             self.set_state(3)
         
         self.info("QR code read.")
