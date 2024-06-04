@@ -67,6 +67,12 @@ import pygame
 import speech_recognition as sr
 import sounddevice
 
+from numpy.linalg import svd
+from PIL import Image
+from matplotlib import pyplot as plt
+import glob
+
+
 class TaskResult(Enum):
     UNKNOWN = 0
     SUCCEEDED = 1
@@ -180,6 +186,8 @@ class RobotCommander(Node):
 
         # for getting the correct painting
         self.correct_painting_sub = self.create_subscription(Image, "/mona_lisa", self.correct_painting_callback, qos_profile_sensor_data)
+
+        self.anomaly_correct_treshold = 1000
 
         self.get_logger().info(f"Robot commander has been initialized!")
 
@@ -545,13 +553,13 @@ class RobotCommander(Node):
             for ix in painting_ixs:
                 curr_painting = self.seen_faces[ix][1]
                 
-                isCorrect, anomaly_img = self.anomaly_detection(curr_painting)
+                isCorrect = self.anomaly_detection(curr_painting, correct_treshold=self.anomaly_correct_treshold)
                 if isCorrect:
                     correct_ix = ix
             
-            # this is here for testing purposes only
-            if painting_ixs:
-                correct_ix = painting_ixs[0]
+            # # this is here for testing purposes only
+            # if painting_ixs:
+            #     correct_ix = painting_ixs[0]
 
             if correct_ix != -1:
                 new_params_dict = {"painting_ix": correct_ix}
@@ -1070,7 +1078,7 @@ class RobotCommander(Node):
                 repeat = False
 
         if self.state == 4:
-            isCorrect, anomaly_img = self.anomaly_detection(transformed_image)
+            isCorrect = self.anomaly_detection(transformed_image, correct_treshold=self.anomaly_correct_treshold)
             if isCorrect:
                 self.set_state(5, {"painting_ix": len(self.seen_faces)-1})
 
@@ -1388,16 +1396,109 @@ class RobotCommander(Node):
         return nav_goals
 
     # Anomaly detection
-    def anomaly_detection(self, img):
-        # This is just a placeholder for now.
 
-        cv2.imshow("Anomaly detection", img)
-        key = cv2.waitKey(1)
-        if key==27:
-            print("exiting")
-            exit()
+    
+    def getAllImages(self, path):
+        data = []
+        for img in glob.glob(f"{path}/*png"):
+            I = np.asarray(Image.open(img).convert("L")).astype(np.float64) / 255
+            # I = np.asarray(Image.open(img)).astype(np.float64) / 255
+            data.append(np.ndarray.flatten(I))
         
-        return (False, img)
+        data = np.asarray(data)
+        return data
+
+    # def getImage(self, path):
+    #     img = np.asarray(Image.open(path).convert("L")).astype(np.float64) / 255
+    #     # img = np.asarray(Image.open(path)).astype(np.float64) / 255
+    #     img = np.array(img)
+    #     # img = cv.GaussianBlur(img, (7, 7), 3)
+    #     return img
+
+
+    def dualPCA(self, X, dim):
+        Xd = np.zeros(X.shape)
+        mu = np.zeros(dim)
+
+        for i in range(dim):
+            mu[i] = np.mean(X[i])
+            Xd[i] = X[i] - mu[i]
+
+        N = len(Xd[0])
+        C = 1/(N - 1) * (Xd.T @ Xd)
+        U, S, VT = svd(C)
+
+        S += 10e-15
+        U = (Xd @ U) @ np.sqrt(np.linalg.inv((np.diag(S) * (N - 1))))
+
+        return mu, C, U, S, VT
+
+
+    # def checkSet(self, path, mu, U, sh):
+    #     for img in glob.glob(f"{path}/*png"):
+    #         I = np.asarray(Image.open(img).convert("L")).astype(np.float64) / 255
+    #         # I = np.asarray(Image.open(img)).astype(np.float64) / 255
+    #         P = U.T @ (I.flatten() - mu)
+    #         recon = U @ P + mu
+    #         recon = np.reshape(recon, sh)
+            
+    #         fig, f = plt.subplots(1, 3)
+    #         f[0].imshow(I, "gray")
+    #         f[1].imshow(recon, "gray")
+    #         f[2].imshow(np.abs(I - recon), "gray")
+
+    #         plt.show()
+
+
+    def anomaly_detection(self, img_to_test, correct_treshold):
+        # real = getImage("./homographies/mona.png")
+        # hat = getImage("./homographies/homography-hat.png")
+
+        original = self.correct_painting
+
+        data = self.getAllImages("./pca_train_set")
+        mu, C, U, S, VT = self.dualPCA(data.T, len(data[0]))
+
+        mona = np.reshape(data[0], original.shape)
+
+        exampleReal = U.T @ (original.flatten() - mu)
+        reconReal = U @ exampleReal + mu
+        reconReal = np.reshape(reconReal, original.shape)
+
+        exampleHat = U.T @ (img_to_test.flatten() - mu)
+        reconHat = U @ exampleHat + mu
+        reconHat = np.reshape(reconHat, original.shape)
+
+
+        reconHatDiff = np.abs(img_to_test - reconHat)
+        reconHatDiffSum = np.sum(reconHatDiff)
+
+        isCorrect = reconHatDiffSum < correct_treshold
+
+        fig, f = plt.subplots(2, 3)
+        f[0, 0].imshow(mona, "gray")
+        f[0, 1].imshow(reconReal, "gray")
+        f[0, 2].imshow(reconHat, "gray")
+
+        f[1, 1].imshow(np.abs(original - reconReal), "gray")
+        f[1, 2].imshow(reconHatDiff, "gray")
+
+        plt.show()
+
+        return isCorrect
+        # checkSet("./pca_train_set", mu, U, real.shape)
+        # checkSet("./homographies", mu, U, real.shape)
+
+    # def anomaly_detection(self, img):
+    #     # This is just a placeholder for now.
+
+    #     cv2.imshow("Anomaly detection", img)
+    #     key = cv2.waitKey(1)
+    #     if key==27:
+    #         print("exiting")
+    #         exit()
+        
+    #     return (False, img)
 
     # Parking:
 
