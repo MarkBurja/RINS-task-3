@@ -566,7 +566,7 @@ class RobotCommander(Node):
             self.state = 5
 
             painting_ix = params_dict["painting_ix"]
-            painting_hi_loc = self.seen_faces[painting_ix][3]
+            painting_hi_loc = self.seen_faces[painting_ix][2]
 
             nav_goals = [("go", painting_hi_loc)]
 
@@ -583,7 +583,7 @@ class RobotCommander(Node):
                 ("terminate", None)
             ])
 
-            self.prepend_to_nav_list(nav_goals, spin_full_after_go=False)
+            self.prepend_to_nav_list(nav_goals, spin_full_after_go=False, prepend_type="qr")
 
             self.cancel_goal = True
             # self.cancelTask()
@@ -631,12 +631,12 @@ class RobotCommander(Node):
         add_to_navigation.extend([
             ("face_or_painting", 0),
             ("spin", 3.14),
-            self.last_destination_goal
+            # self.last_destination_goal
         ])
 
-        self.prepend_to_nav_list(add_to_navigation, spin_full_after_go=False)
+        self.prepend_to_nav_list(add_to_navigation, spin_full_after_go=False, prepend_type="face")
 
-        self.cancel_goal = True
+        # self.cancel_goal = True
         # self.cancelTask()
 
     def ring_detected_callback(self, msg):
@@ -1261,8 +1261,57 @@ class RobotCommander(Node):
             print("tup[0]:")
             print(tup[0])
 
-    def prepend_to_nav_list(self, to_add_list, spin_full_after_go=False):
+    def prepend_to_nav_list(self, to_add_list, spin_full_after_go=False, prepend_type=None):
         
+
+        # Za qr:
+        # Inserta se na začetek in za njim se postavi interrupt boundary.
+        # Če je več interrupt boundaryjev itak ni problema - pač prvega dobimo z index_of.
+        # Zgodi se cancel task in se po "interrupt boundary" še doda self.last_destination_goal"
+
+        # Za face:
+        # Če še ni interrupt boundaryja:
+        # Zgodi se cancel task in se doda "interrupt boundary" in po njem še doda self.last_destination_goal"
+        # Če je že interrupt boundary:
+        # Ne zgodi se cancel_task in ni treba delat self.last_destination_goal. Samo inserta se pred prvi interrupt boundary.
+
+        # Tako se bodo face lepo nalagale v zaporedju pa ne bodo se cancellale.
+        # Če pride do ringa pa gre pred face in face ga ne bodo interruptale ker grejo lepo za njega.
+        # Pa te, ki jih vidimo med qrjem, bomo pač obiskali pred tistimi, ki smo jih pred tem (še kinda nicer, ker so verjetno bližje).
+
+        
+        if prepend_type == "qr":
+            insert_pos = 0
+            new_to_add_list = to_add_list.copy()
+            new_to_add_list.append(("interrupt_boundary", None))
+            new_to_add_list.append(self.last_destination_goal)
+            self.cancel_goal = True
+
+            for tup in reversed(new_to_add_list):
+                self.prepend_tup_to_nav_list(tup, spin_full_after_go, insert_pos)
+        
+        elif prepend_type == "face":
+            insert_pos = 0
+            goal_types = [i[0] for i in self.navigation_list]
+
+            if not "interrupt_boundary" in goal_types:
+                
+                new_to_add_list = to_add_list.copy()
+                new_to_add_list.append(("interrupt_boundary", None))
+                new_to_add_list.append(self.last_destination_goal)
+                self.cancel_goal = True
+
+                for tup in reversed(new_to_add_list):
+                    self.prepend_tup_to_nav_list(tup, spin_full_after_go, insert_pos)
+            
+            else:
+                insert_pos = goal_types.index("interrupt_boundary") - 1
+                insert_pos = max(0, insert_pos) # ce bi slucajno bil -1
+
+                for tup in reversed(to_add_list):
+                    self.prepend_tup_to_nav_list(tup, spin_full_after_go, insert_pos)
+
+
         # This makes thigs too complicated:
         """
         # inserting instead of prepending if we are already going to a face.
@@ -1300,7 +1349,7 @@ class RobotCommander(Node):
                     self.prepend_tup_to_nav_list(tup, spin_full_after_go, insert_pos)
                 return
         """
-
+        print("Prepend to nav list problem! We shouldn't be here!" + 5*"!!!\n")
         for tup in reversed(to_add_list):
             self.prepend_tup_to_nav_list(tup, spin_full_after_go)
             
@@ -1322,7 +1371,7 @@ class RobotCommander(Node):
         goal_tup = (face_goal_location[0], face_goal_location[1], fi)
 
         if not face_ix is None:
-            self.seen_faces[face_ix][3] = face_goal_location
+            self.seen_faces[face_ix][2] = face_goal_location
 
         nav_goals = [("go", goal_tup)]
 
@@ -1492,10 +1541,10 @@ class RobotCommander(Node):
         nav_goals = self.get_parking_navigation_goals(ring_location, ring_color)
         nav_goals.extend(self.get_read_near_cylinder_qr_goals())
         nav_goals.append(("spin", 3.14))
-        nav_goals.append(self.last_destination_goal)
+        # nav_goals.append(self.last_destination_goal)
 
-        self.prepend_to_nav_list(nav_goals, spin_full_after_go=False)
-        self.cancel_goal = True
+        self.prepend_to_nav_list(nav_goals, spin_full_after_go=False, prepend_type="qr")
+        # self.cancel_goal = True
 
         return nav_goals
     
@@ -1784,6 +1833,9 @@ def main(args=None):
 
 
         del rc.navigation_list[0]
+
+        if curr_type == "interupt_boundary":
+            continue
 
         printout_counter = 0
         while not rc.isTaskComplete():
