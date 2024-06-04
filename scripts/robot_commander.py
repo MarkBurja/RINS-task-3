@@ -177,6 +177,9 @@ class RobotCommander(Node):
         # for speech recognition
         self.recognizer = sr.Recognizer() 
 
+        # for getting the correct painting
+        self.correct_painting_sub = self.create_subscription(Image, "/mona_lisa", self.correct_painting_callback, qos_profile_sensor_data)
+
         self.get_logger().info(f"Robot commander has been initialized!")
 
     def destroyNode(self):
@@ -1429,6 +1432,16 @@ class RobotCommander(Node):
 
     # QR code reading:
 
+    def correct_painting_callback(self, data):
+        
+        try:
+            img = self.bridge.imgmsg_to_cv2(data, "bgr8")
+            self.correct_painting = img
+            print("Correct painting received")
+
+        except CvBridgeError as e:
+                print(e)
+
     def QR_code_sequence(self, ring_location, ring_color):
         self.curr_investigated_ring = ring_color
         nav_goals = self.get_parking_navigation_goals(ring_location, ring_color)
@@ -1463,12 +1476,7 @@ class RobotCommander(Node):
 
         self.info("Reading QR code near the cylinder.")
 
-        print("QR reading not implemented!")
-
-        poskus_uspel = False
-        dobljen_painting = None
-
-        if poskus_uspel:
+        if self.correct_painting is None:
             # # Zakomentirano ze obdela set_state
             # if self.curr_investigated_ring == self.possible_rings[0]:
             #     del self.possible_rings[0]
@@ -1476,7 +1484,6 @@ class RobotCommander(Node):
             #     del self.possible_rings[1]
             self.set_state(2, {"ring_list": [self.curr_investigated_ring]})
         else:
-            self.correct_painting = dobljen_painting
             self.set_state(3)
         
         self.info("QR code read.")
