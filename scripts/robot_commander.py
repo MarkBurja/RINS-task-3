@@ -110,8 +110,9 @@ class RobotCommander(Node):
 
         self.seen_rings = {} # {barva: position np.array}
         self.seen_cylinders = {} # {barva: position np.array}
-        self.seen_faces = [] # [position np.array;    slika ob pozdravljanju if isPainting else None].
-
+        self.seen_faces = [] # [position np.array;    slika ob pozdravljanju if isPainting else None, goal_tup].
+        # goal_tup je tu zato, da vemo, kam it, ko gremo gledat pravo mona liso
+                 
         self.map_np = None
         self.map_data = {"map_load_time":None,
                          "resolution":None,
@@ -536,24 +537,56 @@ class RobotCommander(Node):
                 if not paint is None:
                     painting_ixs.append(ix)
             
+            
+            correct_ix = -1
             for ix in painting_ixs:
                 curr_painting = self.seen_faces[ix][1]
                 
-                # run anomaly detection
-                # isCorrect, anomaly_img = self.anomaly_detection(curr_painting)
+                isCorrect, anomaly_img = self.anomaly_detection(curr_painting)
+                if isCorrect:
+                    correct_ix = ix
+            
+            # this is here for testing purposes only
+            if painting_ixs:
+                correct_ix = painting_ixs[0]
 
-                cv2.imshow("Painting", curr_painting)
-                key = cv2.waitKey(1)
-                if key==27:
-                    print("exiting")
-                    exit()
+            if correct_ix != -1:
+                new_params_dict = {"painting_ix": correct_ix}
+                self.set_state(5, new_params_dict)
+            
 
             # show anomalies for existing paintings
             
         elif state == 4:
             self.state = 4
+
+
+
         elif state == 5:
             self.state = 5
+
+            painting_ix = params_dict["painting_ix"]
+            painting_hi_loc = self.seen_faces[painting_ix][2]
+
+            nav_goals = [("go", painting_hi_loc)]
+
+            if True:
+                # this is doubled to prevent self-canceling. And it's idempotent anyway so who cares.
+                # We had problems when detecting the first face, so I'm adding the doubling.
+                nav_goals.append(("go", painting_hi_loc))
+            
+            painting_loc = self.seen_faces[painting_ix][0]
+            nav_goals.append(("correct_orientation", (painting_loc[0], painting_loc[1])))
+
+            nav_goals.extend([
+                ("wave", None),
+                ("terminate", None)
+            ])
+
+            self.prepend_to_nav_list(nav_goals, spin_full_after_go=False, prepend_type="qr")
+
+            self.cancel_goal = True
+            # self.cancelTask()
 
 
     # Callbacks and their supporting functions:
@@ -590,20 +623,20 @@ class RobotCommander(Node):
 
         face_location = np.array([msg.pose.position.x, msg.pose.position.y])
 
-        self.seen_faces.append([face_location, None])
+        self.seen_faces.append([face_location, None, None])
 
         
-        add_to_navigation = self.get_nav_goals_to_position(face_location, self.face_dist, double_goal=True)
+        add_to_navigation = self.get_nav_goals_to_position(face_location, self.face_dist, double_goal=True, face_ix=(len(self.seen_faces)-1))
 
         add_to_navigation.extend([
             ("face_or_painting", 0),
             ("spin", 3.14),
-            self.last_destination_goal
+            # self.last_destination_goal
         ])
 
-        self.prepend_to_nav_list(add_to_navigation, spin_full_after_go=False)
+        self.prepend_to_nav_list(add_to_navigation, spin_full_after_go=False, prepend_type="face")
 
-        self.cancel_goal = True
+        # self.cancel_goal = True
         # self.cancelTask()
 
     def ring_detected_callback(self, msg):
@@ -1033,6 +1066,12 @@ class RobotCommander(Node):
             if curr_str == "done":
                 repeat = False
 
+        if self.state == 4:
+            isCorrect, anomaly_img = self.anomaly_detection(transformed_image)
+            if isCorrect:
+                self.set_state(5, {"painting_ix": len(self.seen_faces)-1})
+
+
     def wave(self):
         up = "manual:[0.,0.5,0.5,0.]"
         down = "manual:[0.,0.5,2.,0.]"
@@ -1183,6 +1222,8 @@ class RobotCommander(Node):
             self.navigation_list.append(("wave", None, None))
         elif tup[0] == "correct_orientation":
             self.navigation_list.append(("correct_orientation", tup[1], None))
+        elif tup[0] == "terminate":
+            self.navigation_list.append(("terminate", None, None))
         else:
             print("UNKNOWN ACTION!" + 5*"!!!\n")
             print("tup[0]:")
@@ -1213,13 +1254,64 @@ class RobotCommander(Node):
             self.navigation_list.insert(insert_pos, ("wave", None, None))
         elif tup[0] == "correct_orientation":
             self.navigation_list.insert(insert_pos, ("correct_orientation", tup[1], None))
+        elif tup[0] == "terminate":
+            self.navigation_list.insert(insert_pos, ("terminate", None, None))
         else:
             print("UNKNOWN ACTION!" + 5*"!!!\n")
             print("tup[0]:")
             print(tup[0])
 
-    def prepend_to_nav_list(self, to_add_list, spin_full_after_go=False):
+    def prepend_to_nav_list(self, to_add_list, spin_full_after_go=False, prepend_type=None):
         
+
+        # Za qr:
+        # Inserta se na začetek in za njim se postavi interrupt boundary.
+        # Če je več interrupt boundaryjev itak ni problema - pač prvega dobimo z index_of.
+        # Zgodi se cancel task in se po "interrupt boundary" še doda self.last_destination_goal"
+
+        # Za face:
+        # Če še ni interrupt boundaryja:
+        # Zgodi se cancel task in se doda "interrupt boundary" in po njem še doda self.last_destination_goal"
+        # Če je že interrupt boundary:
+        # Ne zgodi se cancel_task in ni treba delat self.last_destination_goal. Samo inserta se pred prvi interrupt boundary.
+
+        # Tako se bodo face lepo nalagale v zaporedju pa ne bodo se cancellale.
+        # Če pride do ringa pa gre pred face in face ga ne bodo interruptale ker grejo lepo za njega.
+        # Pa te, ki jih vidimo med qrjem, bomo pač obiskali pred tistimi, ki smo jih pred tem (še kinda nicer, ker so verjetno bližje).
+
+        
+        if prepend_type == "qr":
+            insert_pos = 0
+            new_to_add_list = to_add_list.copy()
+            new_to_add_list.append(("interrupt_boundary", None))
+            new_to_add_list.append(self.last_destination_goal)
+            self.cancel_goal = True
+
+            for tup in reversed(new_to_add_list):
+                self.prepend_tup_to_nav_list(tup, spin_full_after_go, insert_pos)
+        
+        elif prepend_type == "face":
+            insert_pos = 0
+            goal_types = [i[0] for i in self.navigation_list]
+
+            if not "interrupt_boundary" in goal_types:
+                
+                new_to_add_list = to_add_list.copy()
+                new_to_add_list.append(("interrupt_boundary", None))
+                new_to_add_list.append(self.last_destination_goal)
+                self.cancel_goal = True
+
+                for tup in reversed(new_to_add_list):
+                    self.prepend_tup_to_nav_list(tup, spin_full_after_go, insert_pos)
+            
+            else:
+                insert_pos = goal_types.index("interrupt_boundary") - 1
+                insert_pos = max(0, insert_pos) # ce bi slucajno bil -1
+
+                for tup in reversed(to_add_list):
+                    self.prepend_tup_to_nav_list(tup, spin_full_after_go, insert_pos)
+
+
         # This makes thigs too complicated:
         """
         # inserting instead of prepending if we are already going to a face.
@@ -1257,12 +1349,12 @@ class RobotCommander(Node):
                     self.prepend_tup_to_nav_list(tup, spin_full_after_go, insert_pos)
                 return
         """
-
+        print("Prepend to nav list problem! We shouldn't be here!" + 5*"!!!\n")
         for tup in reversed(to_add_list):
             self.prepend_tup_to_nav_list(tup, spin_full_after_go)
             
 
-    def get_nav_goals_to_position(self, goal_location, parking_dist=0.5, double_goal=False):
+    def get_nav_goals_to_position(self, goal_location, parking_dist=0.5, double_goal=False, face_ix=None):
         
         print("goal_location:")
         print(goal_location)
@@ -1275,19 +1367,34 @@ class RobotCommander(Node):
         vec_to_goal_normed /= np.linalg.norm(vec_to_goal_normed)
 
         face_goal_location = goal_location - parking_dist * vec_to_goal_normed
-
         fi = np.arctan2(vec_to_goal_normed[1], vec_to_goal_normed[0])
+        goal_tup = (face_goal_location[0], face_goal_location[1], fi)
 
-        nav_goals = [("go", (face_goal_location[0], face_goal_location[1], fi))]
+        if not face_ix is None:
+            self.seen_faces[face_ix][2] = face_goal_location
+
+        nav_goals = [("go", goal_tup)]
 
         if double_goal:
             # this is doubled to prevent self-canceling. And it's idempotent anyway so who cares.
             # We had problems when detecting the first face, so I'm adding the doubling.
-            nav_goals.append(("go", (face_goal_location[0], face_goal_location[1], fi)))
+            nav_goals.append(("go", goal_tup))
         
         nav_goals.append(("correct_orientation", (goal_location[0], goal_location[1])))
 
         return nav_goals
+
+    # Anomaly detection
+    def anomaly_detection(self, img):
+        # This is just a placeholder for now.
+
+        cv2.imshow("Anomaly detection", img)
+        key = cv2.waitKey(1)
+        if key==27:
+            print("exiting")
+            exit()
+        
+        return (False, img)
 
     # Parking:
 
@@ -1434,10 +1541,10 @@ class RobotCommander(Node):
         nav_goals = self.get_parking_navigation_goals(ring_location, ring_color)
         nav_goals.extend(self.get_read_near_cylinder_qr_goals())
         nav_goals.append(("spin", 3.14))
-        nav_goals.append(self.last_destination_goal)
+        # nav_goals.append(self.last_destination_goal)
 
-        self.prepend_to_nav_list(nav_goals, spin_full_after_go=False)
-        self.cancel_goal = True
+        self.prepend_to_nav_list(nav_goals, spin_full_after_go=False, prepend_type="qr")
+        # self.cancel_goal = True
 
         return nav_goals
     
@@ -1721,7 +1828,14 @@ def main(args=None):
         elif curr_type == "correct_orientation":
             rc.correct_orientation(curr_goal)
 
+        elif curr_type == "terminate":
+            break
+
+
         del rc.navigation_list[0]
+
+        if curr_type == "interupt_boundary":
+            continue
 
         printout_counter = 0
         while not rc.isTaskComplete():
