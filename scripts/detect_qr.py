@@ -3,7 +3,7 @@
 import urllib.request
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data, QoSReliabilityPolicy
+from rclpy.qos import qos_profile_sensor_data
 
 from sensor_msgs.msg import Image
 
@@ -13,9 +13,12 @@ import numpy as np
 import urllib
 import validators
 
+import time
+
 class detect_qr(Node):
 
     def __init__(self):
+        time.sleep(10)
         super().__init__('detect_qr')
 
         self.bridge = CvBridge()
@@ -53,14 +56,17 @@ class detect_qr(Node):
 
                 retval, decoded_info, points, straight_qrcode = self.detector.detectAndDecodeMulti(img)
 
-                print(retval)
-                print(decoded_info)
+                #print(retval)
+                #print(decoded_info)
 
                 if retval:
                     img = cv2.polylines(img, points.astype(int), True, (0, 255, 0), 3)
 
                     value = decoded_info[0]
                     if validators.url(value):
+
+                        print("QR code found!")
+
                         req = urllib.request.urlopen(value)
                         arr = np.asarray(bytearray(req.read()), dtype=np.uint8)
                         mona_lisa = cv2.imdecode(arr, -1)
@@ -70,6 +76,9 @@ class detect_qr(Node):
                         
                         self.mona_lisa = mona_lisa
                         self.found = True
+                    else:
+
+                        print("Not a QR code!")
 
 
             cv2.imshow("qr", img)

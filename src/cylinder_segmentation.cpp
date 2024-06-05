@@ -3,6 +3,7 @@
 #include <cmath>
 #include <algorithm>
 #include <string>
+#include <unistd.h>
 #include <pcl/ModelCoefficients.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/filters/extract_indices.h>
@@ -364,6 +365,7 @@ void cloud_cb(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
 }
 
 int main(int argc, char** argv) {
+    sleep(5);
     rclcpp::init(argc, argv);
 
     std::cout << "cylinder_segmentation" << std::endl;

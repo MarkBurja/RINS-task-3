@@ -21,6 +21,7 @@ import cv2
 import numpy as np
 
 import math
+import time
 
 from ultralytics import YOLO
 
@@ -30,6 +31,7 @@ from ultralytics import YOLO
 class detect_faces(Node):
 
     def __init__(self):
+        time.sleep(10)
         super().__init__('detect_faces')
 
         self.declare_parameters(
@@ -185,8 +187,7 @@ class detect_faces(Node):
                     self.get_logger().info(f"The marker has been published to {self.marker_topic}. You are able to visualize it in Rviz")
                     #self.get_logger().info(f"x: {marker_in_map_frame.pose.position.x}, y: {marker_in_map_frame.pose.position.y}, z: {marker_in_map_frame.pose.position.z}")
                     
-                    for face in self.detected_faces:
-                        self.get_logger().info(f"x: {face.pose.position.x}, y: {face.pose.position.y}, z: {face.pose.position.z}")
+                    self.get_logger().info(f"x: {marker_in_map_frame.pose.position.x}, y: {marker_in_map_frame.pose.position.y}, z: {marker_in_map_frame.pose.position.z}")
 
                     # Increase the marker_id, so we dont overwrite the same marker.
                     self.marker_id += 1

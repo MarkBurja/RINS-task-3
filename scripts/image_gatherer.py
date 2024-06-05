@@ -1,67 +1,26 @@
 #! /usr/bin/env python3
-
-
-
 # !/usr/bin/python3
 
 from enum import Enum
 import time
 
-from action_msgs.msg import GoalStatus
-from builtin_interfaces.msg import Duration
-from geometry_msgs.msg import Quaternion, PoseStamped, PoseWithCovarianceStamped
-from lifecycle_msgs.srv import GetState
-from nav_msgs.msg import OccupancyGrid
-from nav2_msgs.action import Spin, NavigateToPose
-from turtle_tf2_py.turtle_tf2_broadcaster import quaternion_from_euler
-from nav_msgs.msg import OccupancyGrid
-
-from irobot_create_msgs.action import Dock, Undock
-from irobot_create_msgs.msg import DockStatus
-
-import tf2_geometry_msgs as tfg
-from tf2_ros import TransformException
 from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 
 import rclpy
-from rclpy.action import ActionClient
-from rclpy.duration import Duration as rclpyDuration
 from rclpy.node import Node
 
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 from rclpy.qos import qos_profile_sensor_data
 
-
-from geometry_msgs.msg import PointStamped
 from geometry_msgs.msg import Twist
-from visualization_msgs.msg import Marker
 
 from sensor_msgs.msg import Image
-from std_msgs.msg import String
-
-import tf_transformations
 
 from cv_bridge import CvBridge, CvBridgeError
 import cv2
 import numpy as np
-
-from playsound import playsound
-from pydub import AudioSegment
-from pydub.playback import play
-
-from gtts import gTTS
-from io import BytesIO
-import pygame
-
-import concurrent.futures
-import threading
-
-
-from rclpy.executors import SingleThreadedExecutor
-from threading import Thread
-
 
 class TaskResult(Enum):
     UNKNOWN = 0
@@ -79,13 +38,10 @@ amcl_pose_qos = QoSProfile(
 
 qos_profile = amcl_pose_qos
 
-
-
-
 class ImageGatherer(Node):
 
-
     def __init__(self, node_name='image_gatherer', namespace=''):
+        time.sleep(10)
         super().__init__(node_name=node_name)
         
         self.tf_buffer = Buffer()
@@ -270,13 +226,6 @@ class ImageGatherer(Node):
         The vertical size of the bounding box.
         CC_STAT_AREA The total area (in pixels)
         """
-
-
-
-
-
-
-
 
 def main(args=None):
 

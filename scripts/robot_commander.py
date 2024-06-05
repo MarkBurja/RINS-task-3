@@ -1220,7 +1220,7 @@ class RobotCommander(Node):
         elif tup[0] == "park":
             self.navigation_list.append(("park", None, None))
         elif tup[0] == "read_qr":
-            self.navigation_list.append((("read_qr", None, None)))
+            self.navigation_list.append(("read_qr", None, None))
         elif tup[0] == "wave":
             self.navigation_list.append(("wave", None, None))
         elif tup[0] == "correct_orientation":
@@ -1283,7 +1283,7 @@ class RobotCommander(Node):
         # Pa te, ki jih vidimo med qrjem, bomo pač obiskali pred tistimi, ki smo jih pred tem (še kinda nicer, ker so verjetno bližje).
 
         
-        if prepend_type == "qr":
+        """ if prepend_type == "qr":
             insert_pos = 0
             new_to_add_list = to_add_list.copy()
             new_to_add_list.append(("interrupt_boundary", None))
@@ -1312,7 +1312,10 @@ class RobotCommander(Node):
                 insert_pos = max(0, insert_pos) # ce bi slucajno bil -1
 
                 for tup in reversed(to_add_list):
-                    self.prepend_tup_to_nav_list(tup, spin_full_after_go, insert_pos)
+                    self.prepend_tup_to_nav_list(tup, spin_full_after_go, insert_pos) """
+        
+        to_add_list.append(self.last_destination_goal)
+        self.cancel_goal = True
 
 
         # This makes thigs too complicated:
@@ -1639,7 +1642,7 @@ class RobotCommander(Node):
         self.say(question)
         print("Robot: " + question)
 
-        dialogue = True
+        """ dialogue = True
 
         while dialogue:    
      
@@ -1680,15 +1683,15 @@ class RobotCommander(Node):
                 print("Could not request results; {0}".format(e))
                 
             except sr.UnknownValueError:
-                print("unknown error occurred")
+                print("unknown error occurred") """
         
-        #while len(answers) < 2:
-            #answer = input("Enter the color of the painting: ")
-            #if answer in allowed_answers:
-                #answers.append(answer)
-            #else:
-                #print("Invalid answer. Please try again.")
-                #print("Allowed answers are: ", allowed_answers)
+        while len(answers) < 2:
+            answer = input("Enter the color of the painting: ")
+            if answer in allowed_answers:
+                answers.append(answer)
+            else:
+                print("Invalid answer. Please try again.")
+                print("Allowed answers are: ", allowed_answers)
         
         if len(answers) == 2:
             if self.state == 0:
@@ -1841,7 +1844,7 @@ def main(args=None):
 
         del rc.navigation_list[0]
 
-        if curr_type == "interupt_boundary":
+        if curr_type == "interrupt_boundary":
             continue
 
         printout_counter = 0

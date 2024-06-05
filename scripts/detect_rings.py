@@ -4,32 +4,20 @@ import rclpy
 from rclpy.node import Node
 import cv2
 import numpy as np
-import tf2_ros
 
 import random
 
 from sensor_msgs.msg import Image
-from geometry_msgs.msg import PointStamped, Vector3, Pose
+from geometry_msgs.msg import PointStamped
 from cv_bridge import CvBridge, CvBridgeError
 from visualization_msgs.msg import Marker, MarkerArray
-from std_msgs.msg import ColorRGBA
 from rclpy.qos import QoSDurabilityPolicy, QoSHistoryPolicy
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy
 
-
-
-
-
-
-
-
-
-
-from rclpy.qos import qos_profile_sensor_data, QoSReliabilityPolicy
+from rclpy.qos import QoSReliabilityPolicy
 from rclpy.duration import Duration
 
-from sensor_msgs.msg import Image, PointCloud2
-from sensor_msgs_py import point_cloud2 as pc2
+from sensor_msgs.msg import Image 
 
 import tf2_geometry_msgs as tfg
 from tf2_ros import TransformException
@@ -44,26 +32,10 @@ import cv2
 import numpy as np
 
 import math
-
+import time
 
 
 from sensor_msgs.msg import CameraInfo
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 qos_profile = QoSProfile(
           durability=QoSDurabilityPolicy.TRANSIENT_LOCAL,
@@ -73,6 +45,7 @@ qos_profile = QoSProfile(
 
 class RingDetector(Node):
     def __init__(self):
+        time.sleep(10)
         super().__init__('transform_point')
 
         # Basic ROS stuff
@@ -110,13 +83,6 @@ class RingDetector(Node):
         # cv2.namedWindow("Detected rings", cv2.WINDOW_NORMAL)
         # cv2.namedWindow("Depth window", cv2.WINDOW_NORMAL)
 
-
-
-
-
-
-
-
         # Marker handling
 
         # Get camera calibration to be able to get the 3D coordinates of the points in the image
@@ -151,20 +117,6 @@ class RingDetector(Node):
 
 
         self.color_diff_treshold = 30
-
-
-
-
-    
-
-
-
-
-
-
-
-
-
 
     def camera_info_callback(self, msg):
             fx = msg.k[0]
@@ -230,7 +182,6 @@ class RingDetector(Node):
     """
     Checking if markers are new and not false positives.
     """
-
             
     def distance(self, marker1, marker2):
         # calculate distance between 2 markers in a 3D space
@@ -273,25 +224,6 @@ class RingDetector(Node):
         return True
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     def create_marker(self, point_stamped, marker_id, color=(0.0, 0.0, 0.0)):
         """You can see the description of the Marker message here: https://docs.ros2.org/galactic/api/visualization_msgs/msg/Marker.html"""
 
@@ -323,7 +255,6 @@ class RingDetector(Node):
         marker.pose.position.z = point_stamped.point.z
 
         return marker
-
 
 
     def publish_marker_from_point(self, point_in_robot_frame, transform, color=(0.0, 0.0, 0.0)):
@@ -390,7 +321,6 @@ class RingDetector(Node):
             #self.get_logger().info(f"marker has already been detected")
 
 
-
     def publish_marker(self, x, y, z, time_stamp, transform, color=(0.0, 0.0, 0.0)):
 
         # Create a PointStamped in the /base_link frame of the robot
@@ -409,8 +339,6 @@ class RingDetector(Node):
         self.publish_marker_from_point(point_in_robot_frame, transform, color)
 
 
-
-
     """
     THIS ISNT FINISHED YET.
     I DIDNT THIN IT WOULD WORK.
@@ -425,7 +353,6 @@ class RingDetector(Node):
         for x, y in marker_points_list:
             self.curr_markers.append((x,y))
     """
-
 
     """
     # def pointcloud_callback(self, data):
@@ -460,9 +387,6 @@ class RingDetector(Node):
     #         point_in_robot_frame.point.z = float(d[2])
 
     #         self.publish_marker(point_in_robot_frame)
-
-
-
 
 
     # Managing a pointcloud
@@ -514,19 +438,6 @@ class RingDetector(Node):
 
     """
 
-
-
-
-
-
-
-
-
-
-
-
-
-
     def get_decimal_rgb_from_bounding_boxes_of_BGR(self, cv_image, rough_bounding_boxes, thresh):
 
         # print("np.max(thresh)")
@@ -571,11 +482,6 @@ class RingDetector(Node):
         # cv2.imshow("Color after diff_sum", img)
         # cv2.waitKey(1)
 
-        
-        
-
-
-
         rgb_values = []
 
         for box in rough_bounding_boxes:
@@ -617,8 +523,6 @@ class RingDetector(Node):
 
     def get_axis_tips_from_elipse(self, elipse):
 
-
-
         angle = elipse[2]
         angle_rad = np.deg2rad(angle)
 
@@ -635,7 +539,6 @@ class RingDetector(Node):
 
         Just think of them as the first and second axis.
         """
-
 
         first_axis_tip_x = elipse[0][0] + elipse[1][0]/2 * np.cos(angle_rad)
         first_axis_tip_y = elipse[0][1] + elipse[1][0]/2 * np.sin(angle_rad)
@@ -756,8 +659,6 @@ class RingDetector(Node):
                     continue
 
 
-
-
                 # These aren't actually minor and major, but rather width and height of the angled bounding box around the elipse.
                 # Which one is major and which minor (the 0th or 1st one) depends on the angle.
 
@@ -779,9 +680,6 @@ class RingDetector(Node):
                     continue # if one ellipse does not contain the other, it is not a ring
 
 
-
-
-
                 # The widths of the ring along the major and minor axis should be roughly the same
                 border_major = (le[1][1]-se[1][1])/2
                 border_minor = (le[1][0]-se[1][0])/2
@@ -789,11 +687,6 @@ class RingDetector(Node):
 
                 if border_diff > MAX_MAJOR_MINOR_BORDER_DIFF_TRESHOLD:
                     continue
-
-
-
-
-
 
                 if USE_DEPTH_DIFF:
                     
@@ -822,11 +715,6 @@ class RingDetector(Node):
                     else:
                         if (np.abs(envelop_mean_depth - centre_mean_depth) / envelop_mean_depth) < MIN_DEPTH_DIFF_RELATIVE_TRESHOLD:
                             continue
-
-                    
-
-
-
 
 
                 """
@@ -876,14 +764,6 @@ class RingDetector(Node):
                             continue
                 """
 
-                    
-
-
-
-
-
-
-
                 candidates.append([le,se])
 
                 # print("gray.shape")
@@ -902,16 +782,6 @@ class RingDetector(Node):
                 #     print(avg_sample_depth)
                 #     print("avg_centre_depth")
                 #     print(avg_centre_depth)
-
-
-
-
-
-
-
-
-
-
 
 
         # Plot the rings on the image
@@ -948,11 +818,6 @@ class RingDetector(Node):
 
 
         return []
-
-
-
-
-
 
 
     def image_callback(self, data):
@@ -1002,17 +867,10 @@ class RingDetector(Node):
             self.get_logger().info(f"Could not get the transform: {te}")
             return
 
-
-
-
-
-
-
         try:
             cv_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
         except CvBridgeError as e:
             print(e)
-
 
 
         # blue = cv_image[:,:,0]
@@ -1020,17 +878,13 @@ class RingDetector(Node):
         # red = cv_image[:,:,2]
 
 
-
         # Otherwise the green elipses added for imshow are added to the image and it messes up color detection.
         curr_color_img = cv_image.copy()
-
 
 
         # Tranform image to grayscale
         gray = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
         # gray = red
-
-
 
 
         hsv_img = cv2.cvtColor(cv_image, cv2.COLOR_BGR2HSV)
@@ -1070,10 +924,7 @@ class RingDetector(Node):
 
         elipse_candidates = self.elipse_check(thresh, gray, current_depth_image, cv_image)
         
-        
-        
-        
-        
+    
         # Try the approach with grey otsu tresholding.
         if len(elipse_candidates) == 0:
 
@@ -1089,14 +940,11 @@ class RingDetector(Node):
             # Do histogram equalization
             thresholder = cv2.equalizeHist(thresholder)
 
-
             # Binarize the image, there are different ways to do it
             #ret, thresholded = cv2.threshold(thresholder, 50, 255, 0)
             #ret, thresholded = cv2.threshold(thresholder, 70, 255, cv2.THRESH_BINARY)
 
             ret, thresholded = cv2.threshold(thresholder, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-
 
             # The background and foreground are switched in the thresholded image
             # Switch them back - only whis way morphologcal operations do what you expect.
@@ -1112,11 +960,6 @@ class RingDetector(Node):
             thresh = gray.copy()
             thresh[:,:] = 0
             thresh[:gray.shape[0]*1//3,:] = thresholded
-
-
-
-
-
 
 
             # Morphological operations on the image to
@@ -1151,8 +994,6 @@ class RingDetector(Node):
             # thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
             # thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
             # thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
-
-
 
             # # Doesn't work, because it malforms the ring too much to stay an elipse:
             # thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
@@ -1206,8 +1047,6 @@ class RingDetector(Node):
         # watch out for BGR
         colors = self.get_decimal_rgb_from_bounding_boxes_of_BGR(curr_color_img, rough_bounding_boxes, binary_thresh)
         
-
-        
         for ix, depth in enumerate(mean_depths):
 
             if depth == None:
@@ -1223,13 +1062,6 @@ class RingDetector(Node):
             # print(f"Depth at centre: {depth}")
 
             self.publish_marker_from_point(point_in_robot_frame, robot_frame_to_map_transform, colors[ix])
-
-
-
-
-
-
-
 
 
     def depth_callback(self,data):
