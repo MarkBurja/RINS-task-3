@@ -502,6 +502,9 @@ class RobotCommander(Node):
         msg.data = sending_str
         self.arm_pub.publish(msg)
 
+     
+
+
     def set_state(self, state, params_dict=None):
 
         if state == 1:
@@ -543,20 +546,7 @@ class RobotCommander(Node):
         elif state == 3:
             self.state = 3
             
-            painting_ixs = []
-            for ix, paint in self.seen_faces:
-                if not paint is None:
-                    painting_ixs.append(ix)
-            
-            
-            correct_ix = -1
-            for ix in painting_ixs:
-                curr_painting = self.seen_faces[ix][1]
-                
-                isCorrect = self.anomaly_detection(curr_painting, correct_treshold=self.anomaly_correct_treshold)
-                if isCorrect:
-                    correct_ix = ix
-            
+            correct_ix = self.anomaly_detection_on_all_current_paintings()
             # # this is here for testing purposes only
             # if painting_ixs:
             #     correct_ix = painting_ixs[0]
@@ -1408,12 +1398,12 @@ class RobotCommander(Node):
         data = np.asarray(data)
         return data
 
-    # def getImage(self, path):
-    #     img = np.asarray(Image.open(path).convert("L")).astype(np.float64) / 255
-    #     # img = np.asarray(Image.open(path)).astype(np.float64) / 255
-    #     img = np.array(img)
-    #     # img = cv.GaussianBlur(img, (7, 7), 3)
-    #     return img
+    def getImage(self, path):
+        img = np.asarray(Image.open(path).convert("L")).astype(np.float64) / 255
+        # img = np.asarray(Image.open(path)).astype(np.float64) / 255
+        img = np.array(img)
+        # img = cv.GaussianBlur(img, (7, 7), 3)
+        return img
 
 
     def dualPCA(self, X, dim):
@@ -1450,11 +1440,14 @@ class RobotCommander(Node):
     #         plt.show()
 
 
-    def anomaly_detection(self, img_to_test, correct_treshold):
+    def anomaly_detection(self, img_to_test, correct_treshold, do_mona=False):
         # real = getImage("./homographies/mona.png")
         # hat = getImage("./homographies/homography-hat.png")
 
         original = self.correct_painting
+
+        if do_mona:
+            original = self.getImage("./homographies/mona.png")
 
         data = self.getAllImages("./pca_train_set")
         mu, C, U, S, VT = self.dualPCA(data.T, len(data[0]))
@@ -1489,6 +1482,24 @@ class RobotCommander(Node):
         # checkSet("./pca_train_set", mu, U, real.shape)
         # checkSet("./homographies", mu, U, real.shape)
 
+
+    def anomaly_detection_on_all_current_paintings(self):
+        painting_ixs = []
+        for ix, paint in self.seen_faces:
+            if not paint is None:
+                painting_ixs.append(ix)
+        
+        
+        correct_ix = -1
+        for ix in painting_ixs:
+            curr_painting = self.seen_faces[ix][1]
+            
+            isCorrect = self.anomaly_detection(curr_painting, correct_treshold=self.anomaly_correct_treshold)
+            if isCorrect:
+                correct_ix = ix
+        
+        return correct_ix
+    
     # def anomaly_detection(self, img):
     #     # This is just a placeholder for now.
 
@@ -1765,6 +1776,14 @@ class RobotCommander(Node):
         
                     print("Person: " + text)
 
+                    print("Do you have anything to add? Press enter if no.")
+                    print("Type 'no' if you want the questioning to stop after this processing (e.g. to not give clues).")
+                    print("Type 'anomaly' to show anomalies of current images.")
+                    txt_to_add = input()
+                    txt_to_add = txt_to_add.lower()
+                    if txt_to_add != "":
+                        text += " " + txt_to_add
+
                     words = text.split()
                     
                     for color in allowed_answers:
@@ -1774,8 +1793,11 @@ class RobotCommander(Node):
                             if len(answers) >= 2:
                                 dialogue = False
 
-                    if "no" == words[0]:
+                    if "no" in words:
                         dialogue = False
+
+                    if "anomaly" in words:
+                        self.anomaly_detection_on_all_current_paintings()
 
             except sr.RequestError as e:
                 print("Could not request results; {0}".format(e))
