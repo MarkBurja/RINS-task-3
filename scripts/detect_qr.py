@@ -18,7 +18,7 @@ import time
 class detect_qr(Node):
 
     def __init__(self):
-        time.sleep(10)
+        time.sleep(20)
         super().__init__('detect_qr')
 
         self.bridge = CvBridge()

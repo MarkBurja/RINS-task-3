@@ -1217,8 +1217,8 @@ class RobotCommander(Node):
             self.navigation_list.append(("face_or_painting", None, None))
         elif tup[0] == "say_color":
             self.navigation_list.append(("say_color", tup[1], None))
-        elif tup[0] == "park":
-            self.navigation_list.append(("park", None, None))
+        #elif tup[0] == "park":
+            #self.navigation_list.append(("park", None, None))
         elif tup[0] == "read_qr":
             self.navigation_list.append(("read_qr", None, None))
         elif tup[0] == "wave":
@@ -1249,8 +1249,8 @@ class RobotCommander(Node):
             self.navigation_list.insert(insert_pos, ("face_or_painting", None, None))
         elif tup[0] == "say_color":
             self.navigation_list.insert(insert_pos, ("say_color", tup[1], None))
-        elif tup[0] == "park":
-            self.navigation_list.insert(insert_pos, ("park", None, None))
+        #elif tup[0] == "park":
+            #self.navigation_list.insert(insert_pos, ("park", None, None))
         elif tup[0] == "read_qr":
             self.navigation_list.insert(insert_pos, ("read_qr", None, None))
         elif tup[0] == "wave":
@@ -1555,6 +1555,7 @@ class RobotCommander(Node):
     def QR_code_sequence(self, ring_location, ring_color):
         self.curr_investigated_ring = ring_color
         nav_goals = self.get_parking_navigation_goals(ring_location, ring_color)
+        nav_goals.append(("spin", 6.28))
         nav_goals.extend(self.get_read_near_cylinder_qr_goals())
         nav_goals.append(("spin", 3.14))
         # nav_goals.append(self.last_destination_goal)
@@ -1686,7 +1687,7 @@ class RobotCommander(Node):
                 print("unknown error occurred") """
         
         while len(answers) < 2:
-            answer = input("Enter the color of the painting: ")
+            answer = input("Enter the color of the ring: ")
             if answer in allowed_answers:
                 answers.append(answer)
             else:

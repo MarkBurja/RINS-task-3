@@ -45,7 +45,7 @@ qos_profile = QoSProfile(
 
 class RingDetector(Node):
     def __init__(self):
-        time.sleep(10)
+        time.sleep(20)
         super().__init__('transform_point')
 
         # Basic ROS stuff

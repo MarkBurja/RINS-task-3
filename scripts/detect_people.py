@@ -31,7 +31,7 @@ from ultralytics import YOLO
 class detect_faces(Node):
 
     def __init__(self):
-        time.sleep(10)
+        time.sleep(20)
         super().__init__('detect_faces')
 
         self.declare_parameters(

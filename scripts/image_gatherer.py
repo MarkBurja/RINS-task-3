@@ -41,7 +41,7 @@ qos_profile = amcl_pose_qos
 class ImageGatherer(Node):
 
     def __init__(self, node_name='image_gatherer', namespace=''):
-        time.sleep(10)
+        time.sleep(20)
         super().__init__(node_name=node_name)
         
         self.tf_buffer = Buffer()

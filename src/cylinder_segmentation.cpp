@@ -365,7 +365,7 @@ void cloud_cb(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
 }
 
 int main(int argc, char** argv) {
-    sleep(5);
+    sleep(20);
     rclcpp::init(argc, argv);
 
     std::cout << "cylinder_segmentation" << std::endl;
