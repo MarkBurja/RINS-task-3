@@ -106,7 +106,6 @@ class RobotCommander(Node):
 
         self.possible_rings = None
         self.curr_investigated_ring = None
-        self.correct_painting = None
 
         self.seen_rings = {} # {barva: position np.array}
         self.seen_cylinders = {} # {barva: position np.array}
@@ -180,6 +179,8 @@ class RobotCommander(Node):
 
         # for getting the correct painting
         self.correct_painting_sub = self.create_subscription(Image, "/mona_lisa", self.correct_painting_callback, qos_profile_sensor_data)
+        self.correct_painting = None
+        self.correct_painting_found = False
 
         self.get_logger().info(f"Robot commander has been initialized!")
 
@@ -473,6 +474,8 @@ class RobotCommander(Node):
             color = "green"
         elif h > 180 and h < 265:
             color = "blue"
+        else:
+            color = "red"
         
         return color
 
@@ -1411,12 +1414,10 @@ class RobotCommander(Node):
         distance = self.ring_parking_dist
         # Trying to solve the problem of seeing the red ring from the other side of the cube
         # and so having the goal destination be on the wrong side, or even inside the cube.
-        if ring_color == "red":
-            distance = 0.02
+        #if ring_color == "red":
+            #distance = 0.02
         
         navigation_goals = self.get_nav_goals_to_position(ring_location, distance)
-
-        navigation_goals.append(("park", None))
 
         return navigation_goals
 
@@ -1458,9 +1459,12 @@ class RobotCommander(Node):
 
     def park(self):
 
-        self.set_top_camera("park")
+        #self.set_top_camera("park")
+        #nav_goals.append(("spin", 6.28))
+        nav_goals = self.get_read_near_cylinder_qr_goals()
+        self.prepend_to_nav_list(nav_goals, spin_full_after_go=False, prepend_type="qr")
 
-        # Just here to wait until we get the first image, if that hasn't happened yet.
+        """ # Just here to wait until we get the first image, if that hasn't happened yet.
         _, _, _ = self.get_top_img_stats_with_waiting_for_change()
 
         angles = []
@@ -1505,6 +1509,7 @@ class RobotCommander(Node):
         for i in range(len(acceptable_errors)):
             self.top_camera_centre_robot_to_blob_centre(acceptable_error=acceptable_errors[i], milliseconds=100, printout=True)
             self.top_camera_reduce_blob_area(acceptable_area=acceptable_areas[i], milliseconds=100, printout=True)
+        """
 
         print("Parking complete!")
 
@@ -1543,21 +1548,24 @@ class RobotCommander(Node):
     # QR code reading:
 
     def correct_painting_callback(self, data):
+
+        print("correct_painting_callback")
         
         try:
             img = self.bridge.imgmsg_to_cv2(data, "bgr8")
             self.correct_painting = img
+            self.correct_painting_found = True
             print("Correct painting received")
 
         except CvBridgeError as e:
-                print(e)
+            print(e)
 
     def QR_code_sequence(self, ring_location, ring_color):
         self.curr_investigated_ring = ring_color
         nav_goals = self.get_parking_navigation_goals(ring_location, ring_color)
         nav_goals.append(("spin", 6.28))
-        nav_goals.extend(self.get_read_near_cylinder_qr_goals())
-        nav_goals.append(("spin", 3.14))
+        nav_goals.extend(self.get_read_near_cylinder_qr_goals(ring_location))
+        #nav_goals.append(("spin", 6.28))
         # nav_goals.append(self.last_destination_goal)
 
         self.prepend_to_nav_list(nav_goals, spin_full_after_go=False, prepend_type="qr")
@@ -1565,11 +1573,12 @@ class RobotCommander(Node):
 
         return nav_goals
     
-    def get_read_near_cylinder_qr_goals(self):
+    def get_read_near_cylinder_qr_goals(self, ring_location):
         self.set_top_camera("qr")
 
         curr_pos = self.get_curr_pos_with_waiting()
-        curr_pos_location = np.array([curr_pos.point.x, curr_pos.point.y])
+        #curr_pos_location = np.array([curr_pos.point.x, curr_pos.point.y])
+        curr_pos_location = ring_location
         
         nearest_pos = None
         for pos in self.seen_cylinders.values():
@@ -1579,6 +1588,7 @@ class RobotCommander(Node):
                 nearest_pos = pos
         
         nav_goals = self.get_nav_goals_to_position(nearest_pos, self.qr_parking_dist)
+        nav_goals.append(("spin", 6.28))
         nav_goals.append(("read_qr", None))
 
         return nav_goals
@@ -1587,7 +1597,8 @@ class RobotCommander(Node):
 
         self.info("Reading QR code near the cylinder.")
 
-        if self.correct_painting is None:
+        print(self.correct_painting_found)
+        if not self.correct_painting_found:
             # # Zakomentirano ze obdela set_state
             # if self.curr_investigated_ring == self.possible_rings[0]:
             #     del self.possible_rings[0]
@@ -1643,7 +1654,7 @@ class RobotCommander(Node):
         self.say(question)
         print("Robot: " + question)
 
-        """ dialogue = True
+        dialogue = True
 
         while dialogue:    
      
@@ -1684,15 +1695,15 @@ class RobotCommander(Node):
                 print("Could not request results; {0}".format(e))
                 
             except sr.UnknownValueError:
-                print("unknown error occurred") """
+                print("unknown error occurred")
         
-        while len(answers) < 2:
+        """ while len(answers) < 2:
             answer = input("Enter the color of the ring: ")
             if answer in allowed_answers:
                 answers.append(answer)
             else:
                 print("Invalid answer. Please try again.")
-                print("Allowed answers are: ", allowed_answers)
+                print("Allowed answers are: ", allowed_answers) """
         
         if len(answers) == 2:
             if self.state == 0:

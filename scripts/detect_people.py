@@ -127,6 +127,52 @@ class detect_faces(Node):
         dist = math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2 + (z1 - z2) ** 2)
 
         return dist
+    
+    def distance_point(self, point1, point2):
+        # calculate distance between 2 points in a 3D space
+        x1 = point1.point.x
+        x2 = point2.point.x
+        y1 = point1.point.y
+        y2 = point2.point.y
+        z1 = point1.point.z
+        z2 = point2.point.z
+
+        dist = math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2 + (z1 - z2) ** 2)
+
+        return dist
+    
+    def distance_to_face(self, face_point):
+            # Create a PointStamped in the /base_link frame of the robot
+            # The point is located 0.5m in from of the robot
+            # "Stamped" means that the message type contains a Header
+            point_in_robot_frame = PointStamped()
+            point_in_robot_frame.header.frame_id = "/base_link"
+            point_in_robot_frame.header.stamp = self.get_clock().now().to_msg()
+
+            point_in_robot_frame.point.x = 0.
+            point_in_robot_frame.point.y = 0.
+            point_in_robot_frame.point.z = 0.
+
+            # Now we look up the transform between the base_link and the map frames
+            # and then we apply it to our PointStamped
+
+            time_now = rclpy.time.Time()
+            timeout =Duration(seconds=0.1)
+            try:
+                # An example of how you can get a transform from /base_link frame to the /map frame
+                # as it is at time_now, wait for timeout for it to become available
+                trans = self.tf_buffer.lookup_transform("map", "base_link", time_now, timeout)
+                #self.get_logger().info(f"Looks like the transform is available.")
+
+                # Now we apply the transform to transform the point_in_robot_frame to the map frame
+                # The header in the result will be copied from the Header of the transform
+                point_in_map_frame = tfg.do_transform_point(point_in_robot_frame, trans)
+                #self.get_logger().info(f"We transformed a PointStamped!")
+
+                return self.distance_point(point_in_map_frame, face_point)
+
+            except TransformException as te:
+                self.get_logger().info(f"Cound not get the transform: {te}")
 
     def new(self, marker):
         # check if marker is far enough from the already detected faces
@@ -177,7 +223,7 @@ class detect_faces(Node):
             if not math.isnan(marker_in_map_frame.pose.position.x) and not math.isnan(marker_in_map_frame.pose.position.y) and self.new(marker_in_map_frame):
 
                 # check if face already detected
-                if self.notFalsePositive(marker_in_map_frame):
+                if self.notFalsePositive(marker_in_map_frame) and self.distance_to_face(point_in_map_frame) < 2.0:
 
                     # if it's new, append it to detected faces
                     self.detected_faces.append(marker_in_map_frame)
